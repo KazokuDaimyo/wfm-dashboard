@@ -3,6 +3,7 @@ Aucun scan n'est lancé sans action de l'utilisateur : bouton Rescanner ou mode 
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import traceback
@@ -22,7 +23,7 @@ import updates
 from version import APP_VERSION
 
 HOST = "127.0.0.1"
-PORT = 8642
+PORT = int(os.environ.get("WFM_PORT", 8642))  # autre port : tester une copie sans arrêter l'application
 FAST_IDLE_INTERVAL = 60   # cadence du mode auto quand tout est déjà optimal
 MAX_CHANGES = 200         # taille du journal des changements
 

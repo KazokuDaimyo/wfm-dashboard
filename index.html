@@ -198,6 +198,23 @@
   .mod-section-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
   .build-layout { display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 16px; align-items: start; }
   @media (max-width: 800px) { .build-layout { grid-template-columns: 1fr; } }
+  /* Poignée entre le build et la fiche : affichée seulement quand ils sont côte à côte. */
+  .split-handle {
+    display: none; align-items: center; justify-content: center; cursor: col-resize;
+    align-self: stretch;  /* saisissable sur toute la hauteur, pas seulement sur le petit trait */
+    border-radius: 6px; touch-action: none; outline: none;
+  }
+  .split-handle:hover { background: rgba(224, 180, 92, .06); }
+  .split-handle::before {
+    content: ""; width: 4px; height: 48px; border-radius: 4px; background: var(--border);
+    transition: background .15s, height .15s;
+  }
+  .split-handle:hover::before, .split-handle:focus-visible::before, body.resizing .split-handle::before {
+    background: var(--gold); height: 96px;
+  }
+  body.resizing { cursor: col-resize; user-select: none; }
+  body.resizing iframe, body.resizing img { pointer-events: none; }
+
   /* Plateau de mods : 4 colonnes ; ligne aura/exilus (si présente) puis la grille 4×2. */
   .mod-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
   .arcane-stack { display: flex; flex-direction: column; gap: 10px; }
@@ -211,8 +228,10 @@
   #view-builds.build-open > .view-bar, #view-builds.build-open > #installHelp { display: none; }
   @media (min-width: 1100px) and (min-height: 560px) {
     #buildView .builds-grid {
-      grid-template-columns: minmax(0, 1fr) 420px; height: calc(100vh - 57px); padding: 12px 22px;
+      grid-template-columns: minmax(0, 1fr) 12px var(--fiche-w, 420px); gap: 6px;
+      height: calc(100vh - 57px); padding: 12px 22px;
     }
+    .split-handle { display: flex; }
     #buildDetail { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
     #modPanel { height: 100%; overflow-y: auto; }
     #modPanel .wiki-content { max-height: none; overflow: visible; }
@@ -562,6 +581,8 @@
   <div id="buildView" hidden>
     <div class="builds-grid">
       <div class="panel" id="buildDetail"></div>
+      <div class="split-handle" id="splitHandle" role="separator" aria-orientation="vertical" tabindex="0"
+           title="Glisse pour régler la largeur — double-clic pour revenir à la taille par défaut"></div>
       <div class="panel mod-panel" id="modPanel">
         <div class="empty">Clique sur un mod ou un arcane pour savoir où l'obtenir.</div>
       </div>
@@ -1128,6 +1149,7 @@ function openBuild(id) {
   librarySig = detailSig = null;
   $("modPanel").innerHTML = `<div class="empty">Clique sur un mod ou un arcane pour savoir où l'obtenir.</div>`;
   renderLibrary({builds: buildsData, folders: foldersData});
+  window.dispatchEvent(new Event("resize"));  // recale la largeur mémorisée de la fiche
   window.scrollTo(0, 0);
 }
 
@@ -1383,6 +1405,66 @@ $("folderList").addEventListener("drop", async e => {
 });
 
 // ----- Build ouvert -----
+// ----- Poignée : largeur de la fiche du mod, mémorisée dans ce navigateur -----
+const FICHE_KEY = "wfm-fiche-width";
+const FICHE_MIN = 320;
+const FICHE_MAX_RATIO = 0.65;  // la fiche ne mange jamais plus des deux tiers de la largeur
+
+function setFicheWidth(px, save) {
+  const grid = document.querySelector("#buildView .builds-grid");
+  const max = Math.max(FICHE_MIN, grid.clientWidth * FICHE_MAX_RATIO);
+  const width = Math.round(Math.min(max, Math.max(FICHE_MIN, px)));
+  $("buildView").style.setProperty("--fiche-w", width + "px");
+  $("splitHandle").setAttribute("aria-valuenow", width);
+  if (save) {
+    try { localStorage.setItem(FICHE_KEY, String(width)); } catch (e) {}
+  }
+}
+
+function resetFicheWidth() {
+  $("buildView").style.removeProperty("--fiche-w");
+  try { localStorage.removeItem(FICHE_KEY); } catch (e) {}
+}
+
+try {
+  const saved = Number(localStorage.getItem(FICHE_KEY));
+  if (saved) $("buildView").style.setProperty("--fiche-w", saved + "px");
+} catch (e) {}
+
+$("splitHandle").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  const handle = $("splitHandle");
+  const grid = document.querySelector("#buildView .builds-grid");
+  const padRight = parseFloat(getComputedStyle(grid).paddingRight);
+  handle.setPointerCapture(e.pointerId);
+  document.body.classList.add("resizing");
+  const move = ev => setFicheWidth(grid.getBoundingClientRect().right - padRight - ev.clientX, false);
+  const stop = ev => {
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", stop);
+    handle.removeEventListener("pointercancel", stop);
+    document.body.classList.remove("resizing");
+    setFicheWidth($("modPanel").getBoundingClientRect().width, true);
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", stop);
+  handle.addEventListener("pointercancel", stop);
+});
+$("splitHandle").addEventListener("dblclick", resetFicheWidth);
+// Fenêtre rétrécie : la largeur mémorisée est ramenée dans les limites (sans écraser le réglage).
+window.addEventListener("resize", () => {
+  let saved = 0;
+  try { saved = Number(localStorage.getItem(FICHE_KEY)); } catch (e) {}
+  if (saved && !$("buildView").hidden) setFicheWidth(saved, false);
+});
+$("splitHandle").addEventListener("keydown", e => {
+  const step = e.shiftKey ? 80 : 20;
+  const current = $("modPanel").getBoundingClientRect().width;
+  if (e.key === "ArrowLeft") { e.preventDefault(); setFicheWidth(current + step, true); }
+  if (e.key === "ArrowRight") { e.preventDefault(); setFicheWidth(current - step, true); }
+  if (e.key === "Home" || e.key === "Escape") { e.preventDefault(); resetFicheWidth(); }
+});
+
 $("buildDetail").addEventListener("click", async e => {
   if (e.target.closest("[data-back]")) {
     closeBuild();

@@ -44,5 +44,12 @@ python server.py          # lance le serveur depuis les sources (http://127.0.0.
 build.bat                 # fabrique dist\WFM-Dashboard.exe
 ```
 
+Pour tester une modification sans arrêter l'application en cours, lancer une copie sur un autre port
+(et, idéalement, avec un dossier de données de test) :
+
+```bash
+set WFM_PORT=8643 && set APPDATA=C:\chemin\vers\donnees-de-test && python server.py
+```
+
 Publier une version : incrémenter `APP_VERSION` dans `version.py`, lancer `build.bat`, puis créer une
 release GitHub nommée `vX.Y.Z` avec `dist\WFM-Dashboard.exe` en pièce jointe.
