@@ -1042,7 +1042,8 @@ function renderLibrary(lib) {
   }
 
   const withImage = b => b.mods.concat(b.arcanes).filter(m => m.image).length;
-  if (!imagesRequested && buildsData.some(b => !b.item_image || withImage(b) < b.mods.length + b.arcanes.length)) {
+  const missingKind = b => !("kind" in b) && !b.kind_checked;  // build importé avant le relevé du type
+  if (!imagesRequested && buildsData.some(b => missingKind(b) || !b.item_image || withImage(b) < b.mods.length + b.arcanes.length)) {
     imagesRequested = true;  // une seule tentative par session : certains noms n'ont pas d'image
     fetch("/api/builds/images", {method: "POST"}).then(() => poll()).catch(() => {});
   }
@@ -1216,16 +1217,28 @@ function renderBuildDetail() {
   const mods = b.mods.map((m, i) => ({...m, slot: m.slot || i + 1}));
   const bySlot = Object.fromEntries(mods.map(m => [m.slot, m]));
   const special = mods.filter(m => m.slot > 8).sort((x, y) => x.slot - y.slot);
-  const grid = [8, 7, 6, 5, 4, 3, 2, 1]
-    .map(s => bySlot[s] ? card(bySlot[s], "mod") : `<div class="mod-empty" title="Slot vide"></div>`);
-  // Ligne du haut : aura et exilus centrés (colonnes 2 et 3), cases invisibles autour.
-  const specialCards = special.slice(0, 2).map((m, i) => {
-    const aura = typeof m.drain === "number" ? m.drain < 0 : special.length === 2 && i === 0;
-    return card(m, "mod", aura ? "Aura" : "Exilus");
-  });
-  const spacer = '<div class="mod-spacer"></div>';
-  const topRow = specialCards.length ? [spacer, ...specialCards, ...Array(3 - specialCards.length).fill(spacer)] : [];
-  const rows = topRow.length ? 3 : 2;
+  const slotCell = s => bySlot[s] ? card(bySlot[s], "mod") : `<div class="mod-empty" title="Slot vide"></div>`;
+  let cells, cols, rows;
+  if (b.ten_slots) {
+    // Compagnon : 10 emplacements ordinaires, en 2 rangées de 5 comme sur Overframe (10 → 1).
+    cols = 5;
+    rows = 2;
+    cells = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map(slotCell);
+  } else {
+    // Rôle relevé sur Overframe (slot_type) ; pour un build ancien pas encore complété,
+    // estimation d'après la capacité (négative : aura ou posture).
+    const SLOT_LABEL = {1: "Aura", 2: "Posture", 3: "Exilus"};
+    const label = (m, i) => m.slot_type in SLOT_LABEL ? SLOT_LABEL[m.slot_type]
+      : m.slot_type === 0 ? ""
+      : (typeof m.drain === "number" ? m.drain < 0 : special.length === 2 && i === 0) ? "Aura" : "Exilus";
+    // Ligne du haut : emplacements spéciaux centrés (colonnes 2 et 3), cases invisibles autour.
+    const specialCards = special.slice(0, 2).map((m, i) => card(m, "mod", label(m, i)));
+    const spacer = '<div class="mod-spacer"></div>';
+    const topRow = specialCards.length ? [spacer, ...specialCards, ...Array(3 - specialCards.length).fill(spacer)] : [];
+    cols = 4;
+    rows = topRow.length ? 3 : 2;
+    cells = topRow.concat([8, 7, 6, 5, 4, 3, 2, 1].map(slotCell));
+  }
   $("buildDetail").innerHTML = `
     <div class="build-head">
       <div>
@@ -1243,7 +1256,7 @@ function renderBuildDetail() {
     <div class="build-layout">
       <div class="mods-col">
         <div class="mod-section-title">Mods (${b.mods.length})</div>
-        <div class="mod-board" style="grid-template-rows: repeat(${rows}, minmax(0, 1fr))">${topRow.concat(grid).join("")}</div>
+        <div class="mod-board" style="grid-template-columns: repeat(${cols}, minmax(0, 1fr)); grid-template-rows: repeat(${rows}, minmax(0, 1fr))">${cells.join("")}</div>
       </div>
       <div class="arcanes-col">
         <div class="mod-section-title">Arcanes (${b.arcanes.length})</div>

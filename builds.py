@@ -28,6 +28,14 @@ WIKI_BASE = "https://wiki.warframe.com"
 WIKI_TTL = 7 * 24 * 3600
 WIKI_CACHE_VERSION = 2  # à incrémenter quand le nettoyage du HTML change
 IMAGES_TTL = 30 * 24 * 3600
+KINDS = ("warframe", "melee", "primary", "secondary", "companion")
+SLOT_TYPES = (0, 1, 2, 3)  # rôle d'un emplacement (codes d'Overframe) : ordinaire, aura, posture, exilus
+# Catégories du wiki -> type d'objet, pour les builds importés avant le relevé du type
+WIKI_KIND_CATEGORIES = (
+  ("Category:Warframes", "warframe"), ("Category:Companion", "companion"),
+  ("Category:Melee Weapons", "melee"), ("Category:Primary Weapons", "primary"),
+  ("Category:Secondary Weapons", "secondary"),
+)
 MAX_WIKI_ICON = 64  # px : on garde les icônes des tableaux, pas les grandes illustrations
 ACQUISITION_IDS = ("acquisition", "drop_locations", "drop_location", "locations")
 
@@ -93,6 +101,65 @@ def _attach_images(builds: list, allow_download: bool) -> None:
       b["item_image"] = url
 
 
+# ---------- Type d'objet et rôle des emplacements ----------
+
+def _derive_slot_types(build: dict) -> None:
+  """Complète slot_type pour les mods qui ne l'ont pas (builds importés avant son relevé),
+  d'après le type d'objet. Les slots 9 et 10 n'ont pas le même rôle selon l'objet."""
+  kind = build.get("kind")
+  if kind == "companion":
+    build["ten_slots"] = True  # 10 emplacements ordinaires, sans aura ni exilus
+  if not kind:
+    return
+  for i, mod in enumerate(build.get("mods", [])):
+    if mod.get("slot_type") in SLOT_TYPES:
+      continue
+    slot = mod.get("slot") or i + 1
+    if slot <= 8 or build.get("ten_slots"):
+      mod["slot_type"] = 0
+    elif kind == "warframe":
+      mod["slot_type"] = 1 if slot == 9 else 3
+    elif kind == "melee":
+      mod["slot_type"] = 2 if slot == 9 else 3
+    else:  # armes principales et secondaires : un seul emplacement spécial, l'exilus
+      mod["slot_type"] = 3
+
+
+def _fetch_wiki_kinds(names: list) -> dict:
+  """Type d'objet d'après les catégories de sa page wiki. Nom en minuscules -> type ou None."""
+  found = {}
+  for i in range(0, len(names), 50):
+    chunk = names[i:i + 50]
+    resp = requests.get(WIKI_API, timeout=30, headers={"User-Agent": "wfm-price-checker/2.0 (outil perso)"}, params={
+      "action": "query", "titles": "|".join(chunk), "prop": "categories", "redirects": 1, "format": "json",
+      "clcategories": "|".join(c for c, _ in WIKI_KIND_CATEGORIES), "cllimit": "max",
+    })
+    resp.raise_for_status()
+    query = resp.json().get("query", {})
+    renamed = {r["from"]: r["to"] for r in query.get("normalized", []) + query.get("redirects", [])}
+    cats_by_title = {p.get("title"): {c["title"] for c in p.get("categories", [])} for p in query.get("pages", {}).values()}
+    for name in chunk:
+      title = renamed.get(name, name)
+      cats = cats_by_title.get(renamed.get(title, title), set())
+      found[name.lower()] = next((kind for cat, kind in WIKI_KIND_CATEGORIES if cat in cats), None)
+  return found
+
+
+def _attach_kinds(builds: list) -> None:
+  """Builds sans type d'objet : le demande au wiki (une fois par build), puis déduit les emplacements."""
+  pending = [b for b in builds if b.get("item") and "kind" not in b and not b.get("kind_checked")]
+  if not pending:
+    return
+  kinds = _fetch_wiki_kinds(sorted({b["item"] for b in pending}))
+  for b in pending:
+    kind = kinds.get(b["item"].lower())
+    if kind:
+      b["kind"] = kind
+      _derive_slot_types(b)
+    else:
+      b["kind_checked"] = True  # objet non classé (archwing…) : on ne redemande pas à chaque fois
+
+
 # ---------- Bibliothèque : builds et dossiers ----------
 # builds.json = {"folders": [{"id", "name"}], "builds": [...]} ; un build a un
 # "folder_id" (None = non classé) et un "custom_name" (None = titre d'Overframe).
@@ -142,6 +209,8 @@ def _clean_entries(raw) -> list:
         entry["slot"] = e["slot"]
       if isinstance(e.get("drain"), int) and -100 <= e["drain"] <= 100:
         entry["drain"] = e["drain"]
+      if e.get("slot_type") in SLOT_TYPES:
+        entry["slot_type"] = e["slot_type"]
       for key in ("slot_polarity", "mod_polarity"):
         if isinstance(e.get(key), str) and re.fullmatch(r"AP_[A-Z_]{1,20}", e[key]):
           entry[key] = e[key]
@@ -182,6 +251,10 @@ def import_build(lib: dict, payload: dict) -> tuple[dict, str]:
   formas = payload.get("formas")
   if isinstance(formas, int) and not isinstance(formas, bool) and 0 <= formas <= 50:
     build["formas"] = formas
+  if payload.get("kind") in KINDS:
+    build["kind"] = payload["kind"]
+  build["ten_slots"] = payload.get("ten_slots") is True
+  _derive_slot_types(build)
   lib["builds"] = [build] + [b for b in lib["builds"] if b.get("url") != url]
   try:
     _attach_images(lib["builds"], allow_download=True)
@@ -192,9 +265,11 @@ def import_build(lib: dict, payload: dict) -> tuple[dict, str]:
 
 
 def with_images(lib: dict) -> dict:
-  """Copie de la bibliothèque avec les images manquantes complétées depuis le wiki."""
+  """Copie de la bibliothèque complétée depuis le wiki : images manquantes, et type d'objet
+  (donc rôle des emplacements) des builds importés avant son relevé."""
   lib = _copy(lib)
   _attach_images(lib["builds"], allow_download=True)
+  _attach_kinds(lib["builds"])
   return lib
 
 

@@ -597,10 +597,16 @@ class Handler(BaseHTTPRequestHandler):
               continue
             if fresh.get("item_image"):
               b["item_image"] = fresh["item_image"]
+            for key in ("kind", "ten_slots", "kind_checked"):
+              if key in fresh:
+                b[key] = fresh[key]
             images = {e["name"]: e.get("image") for e in fresh["mods"] + fresh["arcanes"]}
+            slot_types = {e["name"]: e.get("slot_type") for e in fresh["mods"]}
             for e in b["mods"] + b["arcanes"]:
               if images.get(e["name"]):
                 e["image"] = images[e["name"]]
+              if slot_types.get(e["name"]) is not None:
+                e["slot_type"] = slot_types[e["name"]]
           state["library"] = lib
           builds.save_library(lib)
       except Exception as e:

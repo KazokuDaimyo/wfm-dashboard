@@ -63,14 +63,24 @@ function overframeExport(DASH) {
         name: el.textContent.trim(),
         rarity: rarity(el),
         slot: p && Number.isInteger(p.slot) ? p.slot : i + 1,
+        // rôle de l'emplacement : 0 ordinaire, 1 aura, 2 posture, 3 exilus
+        slot_type: p && Number.isInteger(p.type) ? p.type : null,
         drain: p && typeof p.drain === "number" ? p.drain : null,
         forma: !!(p && p.hasForma),
         ...polarity(el),
       };
     })
     .filter(x => x.name);
+  // Type d'objet d'après les catégories Overframe (["warframe"], ["weapon", "melee", …], ["pet", …]).
+  const categories = (pp.item && pp.item.categories) || [];
+  const kind = ["warframe", "melee", "primary", "secondary"].find(k => categories.includes(k))
+    || (categories.includes("pet") ? "companion" : null);
+  const slotsBox = document.querySelector('[class*="BuildCalculator_modSlots__"]');
   const data = {
     item: (pp.item && pp.item.name) || "",
+    kind,
+    // compagnons : 10 emplacements ordinaires, sans aura ni exilus
+    ten_slots: !!(slotsBox && /BuildCalculator_tenSlots__/.test(slotsBox.className)),
     title: (pp.data && pp.data.title) || document.title,
     url: location.href.split("#")[0],
     formas: pp.data && Number.isInteger(pp.data.formas) ? pp.data.formas : null,
