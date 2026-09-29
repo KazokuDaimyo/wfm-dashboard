@@ -3,4 +3,4 @@
 APP_VERSION = "1.0.0"
 
 # Dépôt GitHub public, sous la forme "propriétaire/nom". Vide : aucune vérification de mise à jour.
-UPDATE_REPO = ""
+UPDATE_REPO = "KazokuDaimyo/wfm-dashboard"
