@@ -17,11 +17,12 @@ from pathlib import Path
 
 import requests
 
+import appdata
 import main as core
 
-BUILDS_FILE = Path(__file__).with_name("builds.json")
-WIKI_CACHE_FILE = Path(__file__).with_name("wiki_cache.json")
-IMAGES_FILE = Path(__file__).with_name("wiki_images.json")
+BUILDS_FILE = appdata.data_file("builds.json")
+WIKI_CACHE_FILE = appdata.data_file("wiki_cache.json")
+IMAGES_FILE = appdata.data_file("wiki_images.json")
 WIKI_API = "https://wiki.warframe.com/api.php"
 WIKI_BASE = "https://wiki.warframe.com"
 WIKI_TTL = 7 * 24 * 3600
@@ -415,7 +416,7 @@ def _market_lookup(name: str) -> dict | None:
   core.load_stats_cache()
   stats = core.get_item_stats(item["slug"], {"rank": 0})
   top = core.api_get(f"/orders/item/{item['slug']}/top", params={"rank": 0}) or {}
-  my_slug = core.slugify(core.INGAME_NAME)
+  my_slug = core.slugify(appdata.ingame_name())
   sellers = [
     o for o in top.get("sell", [])
     if o.get("platinum") is not None

@@ -13,12 +13,13 @@ from pathlib import Path
 
 import requests
 
+import appdata
 import main as core
 
 DROPS_BASE = "https://drops.warframestat.us/data"
 VAULT_TRADER_URL = "https://api.warframestat.us/pc/vaultTrader"
-DROPS_CACHE = Path(__file__).with_name("drops_cache.json")
-RESULTS_CACHE = Path(__file__).with_name("prime_scan_cache.json")
+DROPS_CACHE = appdata.data_file("drops_cache.json")
+RESULTS_CACHE = appdata.data_file("prime_scan_cache.json")
 DROPS_TTL = 24 * 3600
 
 MIN_FLIP_PROFIT = 10  # delta minimum (en platinum) pour lister un flip
@@ -209,7 +210,7 @@ def run(state: dict, state_lock) -> None:
     update(notes=notes)
 
     # ---------- Phase 1 : flips sur les sets vaultés ----------
-    my_slug = core.slugify(core.INGAME_NAME)
+    my_slug = core.slugify(appdata.ingame_name())
     sets = [v for v in item_index.values() if v["slug"].endswith("_prime_set")]
     vaulted_sets = []
     for s in sets:

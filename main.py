@@ -14,12 +14,13 @@ try:
 except ImportError:
   sys.exit("Le module 'requests' est requis.")
 
+import appdata
+
 ##########
 # CONFIG #
 ##########
 
-INGAME_NAME = "KazokuDaimyo"
-PLATFORM = "pc"
+# Pseudo et plateforme : réglages de l'utilisateur (appdata.ingame_name(), appdata.platform()).
 LANGUAGE = "en"
 DELAY_BETWEEN_REQUESTS = 0.35  # intervalle minimum entre deux requêtes (rate limit API : 3/s)
 MAX_WORKERS = 4                # requêtes en parallèle (le débit reste borné par le rate limit)
@@ -29,11 +30,10 @@ LOW_VOLUME = 2                 # sous ce volume moyen de ventes/jour, l'objet es
 
 BASE_URL = "https://api.warframe.market/v2"
 V1_BASE_URL = "https://api.warframe.market/v1"  # les statistiques n'existent qu'en v1
-CACHE_FILE = Path(__file__).with_name("items_cache.json")
-STATS_CACHE_FILE = Path(__file__).with_name("stats_cache.json")
+CACHE_FILE = appdata.data_file("items_cache.json")
+STATS_CACHE_FILE = appdata.data_file("stats_cache.json")
 
-HEADERS = {
-  "Platform": PLATFORM,
+HEADERS = {  # "Platform" est ajouté à chaque requête : il suit les réglages sans redémarrage
   "Language": LANGUAGE,
   "Accept": "application/json",
   "User-Agent": "wfm-price-checker/2.0",
@@ -95,7 +95,7 @@ def api_get(path: str, params: Optional[dict] = None,
   for attempt in range(2):
     rate_limiter.wait()
     try:
-      resp = get_session().get(url, params=params, timeout=15)
+      resp = get_session().get(url, params=params, timeout=15, headers={"Platform": appdata.platform()})
     except requests.RequestException as e:
       if attempt == 0:
         continue
@@ -199,7 +199,7 @@ def get_item_stats(slug: str, order: dict) -> Optional[dict]:
   """SMA (moving_avg 90 jours des ventes conclues) et volume moyen/jour, avec cache."""
   rank = order.get("rank")
   subtype = order.get("subtype")
-  key = f"{slug}|{rank}|{subtype}"
+  key = f"{appdata.platform()}|{slug}|{rank}|{subtype}"  # les prix diffèrent selon la plateforme
 
   with stats_cache_lock:
     cached = stats_cache.get(key)
@@ -328,14 +328,15 @@ def check_order(order: dict, item_index: dict, my_slug: str) -> Optional[dict]:
 
 
 def main() -> None:
-  if INGAME_NAME == "TonPseudoWarframe":
-    sys.exit("Merci de renseigner ton pseudo dans INGAME_NAME avant de lancer le script.")
+  name = appdata.ingame_name()
+  if not name:
+    sys.exit("Aucun pseudo configuré : lance d'abord le tableau de bord (server.py) pour le renseigner.")
 
-  my_slug = slugify(INGAME_NAME)
+  my_slug = slugify(name)
   item_index = build_item_index()
   load_stats_cache()
 
-  print(f"\nRécupération de tes ordres de vente ({CYAN}{INGAME_NAME}{RESET})...")
+  print(f"\nRécupération de tes ordres de vente ({CYAN}{name}{RESET})...")
   my_orders = get_my_sell_orders(my_slug)
   if not my_orders:
     print("Aucun ordre de vente visible trouvé sur ton profil.")

@@ -6,6 +6,7 @@ import json
 import threading
 import time
 import traceback
+import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,9 +14,12 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
+import appdata
 import builds
 import main as core
 import prime_analysis
+import updates
+from version import APP_VERSION
 
 HOST = "127.0.0.1"
 PORT = 8642
@@ -24,8 +28,8 @@ MAX_CHANGES = 200         # taille du journal des changements
 
 ALLOWED_ORIGINS = {f"http://{HOST}:{PORT}", f"http://localhost:{PORT}"}
 
-INDEX_FILE = Path(__file__).with_name("index.html")
-EXPORT_FILE = Path(__file__).with_name("overframe_export.js")
+INDEX_FILE = appdata.resource("index.html")
+EXPORT_FILE = appdata.resource("overframe_export.js")
 
 USERSCRIPT_TEMPLATE = """// ==UserScript==
 // @name         Warframe Market — Ajouter le build au tableau de bord
@@ -65,13 +69,13 @@ USERSCRIPT_TEMPLATE = """// ==UserScript==
   setInterval(sync, 1000);
 }})();
 """
-TOKEN_FILE = Path(__file__).with_name("wfm_token.txt")  # jeton JWT warframe.market (jamais commité)
+TOKEN_FILE = appdata.data_file("wfm_token.txt")  # jeton JWT warframe.market, propre à chaque utilisateur
 
 rescan_event = threading.Event()
 state_lock = threading.Lock()
 state = {
-  "ingame_name": core.INGAME_NAME,
-  "platform": core.PLATFORM,
+  "version": APP_VERSION,
+  "update": None,  # renseigné par updates.py quand une nouvelle version est publiée
   "scan_count": 0,
   "last_scan_at": None,
   "next_scan_at": None,
@@ -85,6 +89,44 @@ state = {
   "fast_mode": False,
   "library": builds.load_library(),
 }
+
+
+def save_settings(name: str, platform) -> tuple[int, dict]:
+  """Vérifie le pseudo sur warframe.market puis enregistre les réglages. Sans plateforme
+  choisie, reprend celle du profil. Retourne (code HTTP, réponse JSON)."""
+  name = " ".join(name.split())
+  if not name:
+    return 400, {"ok": False, "message": "Indique ton pseudo Warframe."}
+  if platform is not None and platform not in appdata.PLATFORMS:
+    return 400, {"ok": False, "message": "Plateforme inconnue."}
+
+  core.rate_limiter.wait()
+  try:
+    resp = requests.get(f"{core.BASE_URL}/user/{core.slugify(name)}", timeout=15, headers={
+      "Accept": "application/json", "User-Agent": f"WFM-Dashboard/{APP_VERSION}",
+      "Platform": platform or "pc",
+    })
+  except requests.RequestException as e:
+    return 502, {"ok": False, "message": f"warframe.market injoignable : {e}"}
+  if resp.status_code == 404:
+    return 404, {"ok": False, "message": f"Aucun joueur « {name} » sur warframe.market : vérifie l'orthographe."}
+  if not resp.ok:
+    return 502, {"ok": False, "message": f"warframe.market a répondu {resp.status_code}, réessaie."}
+
+  profile = resp.json().get("data") or {}
+  real_name = profile.get("ingameName") or name
+  detected = profile.get("platform")
+  chosen = platform or (detected if detected in appdata.PLATFORMS else "pc")
+
+  previous = appdata.settings()
+  appdata.save_settings(real_name, chosen)
+  if previous["ingame_name"] and core.slugify(previous["ingame_name"]) != core.slugify(real_name):
+    logout()  # le jeton enregistré appartient à l'ancien compte
+  if (previous["ingame_name"], previous["platform"]) != (real_name, chosen):
+    with state_lock:  # les résultats affichés concernaient un autre compte ou une autre plateforme
+      state.update(fast_mode=False, results=[], summary=None, changes=[], scan_count=0,
+                   last_scan_at=None, next_scan_at=None, error=None)
+  return 200, {"ok": True, "ingame_name": real_name, "platform": chosen, "detected_platform": detected}
 
 
 def read_token() -> str | None:
@@ -110,7 +152,7 @@ def signin(email: str, password: str) -> tuple[int, str]:
         "Authorization": "JWT",  # exigé par l'API, même vide, pour obtenir un jeton
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "Platform": core.PLATFORM,
+        "Platform": appdata.platform(),
         "Language": core.LANGUAGE,
       },
     )
@@ -161,7 +203,7 @@ def apply_price(order_id: str, platinum: int, source: str = "via le dashboard") 
       timeout=15,
       headers={
         "Authorization": f"Bearer {token}",
-        "Platform": core.PLATFORM,
+        "Platform": appdata.platform(),
         "Language": core.LANGUAGE,
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -306,7 +348,6 @@ def auto_apply() -> int:
 def scan_loop() -> None:
   """Aucun scan automatique : la boucle attend un déclencheur explicite
   (bouton Rescanner) et n'enchaîne les cycles que tant que le mode auto est actif."""
-  my_slug = core.slugify(core.INGAME_NAME)
   core.load_stats_cache()
   item_index = None  # construit au premier scan, pour ne rien télécharger au démarrage
 
@@ -330,9 +371,12 @@ def scan_loop() -> None:
       prev = state["results"]
 
     try:
+      name = appdata.ingame_name()  # relu à chaque scan : le pseudo peut changer dans les réglages
+      if not name:
+        raise ValueError("Aucun pseudo configuré : renseigne-le dans les réglages (⚙️).")
       if item_index is None:
         item_index = core.build_item_index()
-      results = run_scan(item_index, my_slug)
+      results = run_scan(item_index, core.slugify(name))
       now = time.time()
       new_changes = diff_changes(prev, results, now) if prev else []
       core.save_json_cache(core.STATS_CACHE_FILE, core.stats_cache)
@@ -377,9 +421,12 @@ class Handler(BaseHTTPRequestHandler):
       self.end_headers()
       self.wfile.write(body)
     elif self.path == "/api/state":
+      settings = appdata.settings()
       with state_lock:
         body = json.dumps({
           **state, "now": time.time(), "can_update": read_token() is not None,
+          "ingame_name": settings["ingame_name"], "platform": settings["platform"],
+          "platforms": appdata.PLATFORMS, "needs_setup": not settings["ingame_name"],
         }).encode("utf-8")
       self.send_response(200)
       self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -516,6 +563,13 @@ class Handler(BaseHTTPRequestHandler):
       if enabled:
         rescan_event.set()  # démarre un cycle tout de suite
       self.send_json(200, {"ok": True, "enabled": enabled})
+    elif self.path == "/api/settings":
+      try:
+        req = self.read_json_body()
+        status, reply = save_settings(str(req.get("ingame_name", "")), req.get("platform"))
+      except (ValueError, TypeError, AttributeError):
+        status, reply = 400, {"ok": False, "message": "Requête invalide."}
+      self.send_json(status, reply)
     elif self.path == "/api/builds/import":
       try:
         payload = self.read_json_body()
@@ -584,11 +638,41 @@ class Handler(BaseHTTPRequestHandler):
     pass  # pas de log par requête, le polling rendrait la console illisible
 
 
-def main() -> None:
+def already_running() -> bool:
+  try:
+    resp = requests.get(f"http://{HOST}:{PORT}/api/state", timeout=2)
+    return resp.ok and "version" in resp.json()
+  except (requests.RequestException, ValueError):
+    return False
+
+
+def on_update(info: dict) -> None:
+  with state_lock:
+    already_known = (state["update"] or {}).get("version") == info["version"]
+    state["update"] = info
+  if not already_known:
+    print(f"\n★ Nouvelle version {info['version']} disponible : {info['page']}\n", flush=True)
+
+
+def main(open_browser: bool = False) -> None:
+  url = f"http://{HOST}:{PORT}"
+  if already_running():
+    print(f"Le tableau de bord tourne déjà : {url}")
+    if open_browser:
+      webbrowser.open(url)
+    return
+  try:
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+  except OSError:
+    raise SystemExit(f"Le port {PORT} est déjà utilisé par un autre programme : impossible de démarrer.")
+
   threading.Thread(target=scan_loop, daemon=True).start()
-  server = ThreadingHTTPServer((HOST, PORT), Handler)
-  print(f"Tableau de bord disponible sur http://{HOST}:{PORT}")
-  print("Aucun scan automatique : utilise le bouton Rescanner ou le mode auto. Ctrl+C pour arrêter.")
+  updates.start(on_update)
+  print(f"WFM Dashboard {APP_VERSION} — tableau de bord sur {url}")
+  print("Aucun scan automatique : utilise le bouton Rescanner ou le mode auto.")
+  print("Pour arrêter l'application, ferme cette fenêtre (ou Ctrl+C).", flush=True)
+  if open_browser:
+    threading.Timer(0.3, webbrowser.open, [url]).start()
   try:
     server.serve_forever()
   except KeyboardInterrupt:

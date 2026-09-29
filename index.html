@@ -39,6 +39,31 @@
   .nav-link:hover { color: var(--text); }
   .nav-link.active { color: var(--gold); border-bottom-color: var(--gold); font-weight: 600; }
   .account { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .update-pill {
+    background: #163526; color: var(--green); border: 1px solid var(--green); border-radius: 999px;
+    padding: 4px 12px; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap;
+  }
+  .update-pill:hover { background: #1d4531; }
+  .app-version { color: var(--muted); font-size: 11px; }
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 100; background: rgba(5, 7, 10, .75);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px 24px; width: min(440px, 100%); display: flex; flex-direction: column; gap: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+  }
+  .modal h2 { margin: 0; font-size: 19px; }
+  .modal p { margin: 0; }
+  .modal label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+  .modal input, .modal select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font: inherit; font-size: 14px;
+  }
+  .modal input:focus, .modal select:focus { outline: none; border-color: var(--gold); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-error { color: var(--red); font-size: 13px; }
   .account .dot { color: var(--green); }
   .view-bar {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -432,10 +457,31 @@
     <button class="nav-link" data-view="builds">🛠️ Builds</button>
   </div>
   <div class="account">
+    <a class="update-pill" id="updatePill" hidden target="_blank" rel="noopener"></a>
     <span class="meta" id="accountStatus">Non connecté</span>
     <button id="logoutBtn" hidden title="Oublier le jeton warframe.market">Déconnecter</button>
+    <button type="button" class="icon-btn" id="settingsBtn" title="Réglages : pseudo et plateforme" style="font-size:17px">⚙️</button>
+    <span class="app-version" id="appVersion"></span>
   </div>
 </nav>
+
+<div class="modal-backdrop" id="settingsModal" hidden>
+  <form class="modal" id="settingsForm" autocomplete="off">
+    <h2 id="settingsTitle">Réglages</h2>
+    <p class="meta" id="settingsIntro"></p>
+    <label>Pseudo Warframe
+      <input id="setName" required maxlength="40" placeholder="Ton pseudo en jeu">
+    </label>
+    <label>Plateforme
+      <select id="setPlatform"><option value="">Détecter automatiquement</option></select>
+    </label>
+    <div class="modal-error" id="settingsError" hidden></div>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="settingsCancel">Annuler</button>
+      <button type="submit" class="btn-gold" id="settingsSave">Enregistrer</button>
+    </div>
+  </form>
+</div>
 
 <section class="view" id="view-prime" hidden>
   <div class="view-bar">
@@ -658,7 +704,7 @@ const fmt = v => v === null || v === undefined ? "–" : v;
 const heure = t => new Date(t * 1000).toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"});
 
 function render(state) {
-  $("pseudo").textContent = state.ingame_name + " (" + state.platform.toUpperCase() + ")";
+  renderAppChrome(state);
   clockOffset = Date.now() / 1000 - state.now;
   nextScanAt = state.next_scan_at;
 
@@ -814,6 +860,87 @@ async function poll() {
     $("lastScan").textContent = "Serveur injoignable — il est peut-être arrêté.";
   }
 }
+
+// ---------- Réglages, version et mises à jour ----------
+let platformNames = {};
+let settingsOpen = false;
+let setupMode = false;
+let lastSettings = {ingame_name: "", platform: "pc"};
+
+function renderAppChrome(state) {
+  lastSettings = {ingame_name: state.ingame_name, platform: state.platform};
+  if (!Object.keys(platformNames).length && state.platforms) {
+    platformNames = state.platforms;
+    $("setPlatform").insertAdjacentHTML("beforeend",
+      Object.entries(platformNames).map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join(""));
+  }
+  $("pseudo").textContent = state.ingame_name
+    ? `${state.ingame_name} (${platformNames[state.platform] || state.platform})` : "—";
+  $("appVersion").textContent = "v" + state.version;
+
+  const up = state.update;
+  $("updatePill").hidden = !up;
+  if (up) {
+    $("updatePill").textContent = `★ Version ${up.version} disponible`;
+    $("updatePill").href = up.page || up.download;
+    $("updatePill").title = "Ouvre la page de téléchargement de la nouvelle version";
+  }
+
+  if (state.needs_setup && !settingsOpen) openSettings(true);
+}
+
+function openSettings(setup) {
+  settingsOpen = true;
+  setupMode = setup;
+  $("settingsTitle").textContent = setup ? "Bienvenue ! 👋" : "Réglages";
+  $("settingsIntro").textContent = setup
+    ? "Indique ton pseudo Warframe : il sert à retrouver tes ordres de vente sur warframe.market. La plateforme est détectée depuis ton profil."
+    : "Changer de pseudo efface les résultats de scan affichés et déconnecte le compte warframe.market.";
+  $("settingsCancel").hidden = setup;  // au premier lancement, rien ne marche sans pseudo
+  $("setName").value = lastSettings.ingame_name || "";
+  $("setPlatform").value = setup ? "" : lastSettings.platform;
+  $("settingsError").hidden = true;
+  $("settingsModal").hidden = false;
+  $("setName").focus();
+}
+
+function closeSettings() {
+  settingsOpen = false;
+  $("settingsModal").hidden = true;
+}
+
+$("settingsBtn").addEventListener("click", () => openSettings(false));
+$("settingsCancel").addEventListener("click", closeSettings);
+$("settingsModal").addEventListener("keydown", e => {
+  if (e.key === "Escape" && !setupMode) closeSettings();
+});
+$("settingsForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("settingsSave").disabled = true;
+  $("settingsSave").textContent = "Vérification…";
+  $("settingsError").hidden = true;
+  try {
+    const resp = await fetch("/api/settings", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ingame_name: $("setName").value, platform: $("setPlatform").value || null}),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      closeSettings();
+      showToast(`✓ Réglages enregistrés : ${data.ingame_name} (${platformNames[data.platform] || data.platform})`, false);
+      await poll();
+    } else {
+      $("settingsError").textContent = data.message || "Enregistrement refusé.";
+      $("settingsError").hidden = false;
+    }
+  } catch (err) {
+    $("settingsError").textContent = "Serveur injoignable.";
+    $("settingsError").hidden = false;
+  }
+  $("settingsSave").disabled = false;
+  $("settingsSave").textContent = "Enregistrer";
+});
 
 // ---------- Vue Builds ----------
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
