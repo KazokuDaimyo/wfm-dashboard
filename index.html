@@ -1,0 +1,1389 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warframe Market — Tableau de bord</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #171c26;
+    --panel2: #1d2430;
+    --border: #2a3342;
+    --text: #dde3ec;
+    --muted: #8a94a6;
+    --red: #ff6b6b;
+    --cyan: #4cc9f0;
+    --green: #5cd992;
+    --gold: #e0b45c;
+  }
+  * { box-sizing: border-box; }
+  /* sinon un display: grid/flex déclaré sur l'élément l'emporte sur l'attribut hidden */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  .navbar {
+    display: flex; align-items: stretch; gap: 28px; flex-wrap: wrap;
+    padding: 0 22px; background: var(--panel); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10; min-height: 56px;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+  .brand span { color: var(--gold); }
+  .nav-links { display: flex; align-items: stretch; gap: 2px; }
+  .nav-link {
+    background: none; color: var(--muted); border: none; border-bottom: 2px solid transparent;
+    padding: 0 16px; font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .nav-link:hover { color: var(--text); }
+  .nav-link.active { color: var(--gold); border-bottom-color: var(--gold); font-weight: 600; }
+  .account { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .account .dot { color: var(--green); }
+  .view-bar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 22px 0;
+  }
+  .meta { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  .pill {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 999px;
+    padding: 4px 12px; font-size: 13px; color: var(--muted);
+  }
+  .pill b { color: var(--text); font-weight: 600; }
+  .pill.scanning b { color: var(--gold); }
+  #rescanBtn {
+    background: #2a2416; color: var(--gold); border: 1px solid var(--gold);
+    border-radius: 999px; padding: 4px 14px; font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+  }
+  #rescanBtn:hover { background: #3a3216; }
+  #rescanBtn:disabled { opacity: .5; cursor: default; }
+  #fastBtn {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 14px; font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+  }
+  #fastBtn.on {
+    background: #163526; color: var(--green); border-color: var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(92,217,146,.35); } 50% { box-shadow: 0 0 0 5px rgba(92,217,146,0); } }
+
+  .prices-grid { display: grid; grid-template-columns: 1fr 320px; gap: 18px; padding: 18px 22px; }
+  @media (max-width: 1100px) { .prices-grid { grid-template-columns: 1fr; } }
+
+  #view-prime .prime-body { padding: 4px 22px 18px; }
+
+  /* ---------- Vue Builds ---------- */
+  .of-search { display: flex; gap: 8px; }
+  .of-search input {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 12px; font: inherit; font-size: 13px; width: 280px;
+  }
+  .of-search input:focus { outline: none; border-color: var(--gold); }
+  .btn-gold {
+    background: #2a2416; color: var(--gold); border: 1px solid var(--gold);
+    border-radius: 8px; padding: 7px 16px; font: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; text-decoration: none; white-space: nowrap;
+  }
+  .btn-gold:hover { background: #3a3216; }
+  .btn-ghost {
+    background: none; color: var(--muted); border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer; text-decoration: none;
+  }
+  .btn-ghost:hover { color: var(--text); }
+  .bookmarklet {
+    display: inline-block; background: #163526; color: var(--green); border: 1px dashed var(--green);
+    border-radius: 8px; padding: 6px 14px; font-weight: 600; text-decoration: none; cursor: grab;
+    /* sans sélection possible, un glisser depuis le texte déplace toujours le lien */
+    user-select: none; -webkit-user-select: none; -webkit-user-drag: element;
+  }
+  .bookmarklet:active { cursor: grabbing; }
+  .builds-grid {
+    display: grid; grid-template-columns: 1fr 440px; gap: 18px; padding: 4px 22px 18px;
+    align-items: start;
+  }
+  @media (max-width: 1200px) { .builds-grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .panel h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+  /* ----- Bibliothèque : dossiers + cartes ----- */
+  .library-grid {
+    display: grid; grid-template-columns: 240px 1fr; gap: 18px; padding: 18px 22px; align-items: start;
+  }
+  @media (max-width: 800px) { .library-grid { grid-template-columns: 1fr; } }
+  .folder-panel { position: sticky; top: 72px; }
+  .folder-list { display: flex; flex-direction: column; gap: 4px; }
+  .folder-item {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
+    border: 1px dashed transparent; cursor: pointer; color: var(--text); user-select: none;
+  }
+  .folder-item:hover { background: var(--panel2); }
+  .folder-item.active { background: #2a2416; color: var(--gold); font-weight: 600; }
+  .folder-item.drop-target { border-color: var(--gold); background: #3a3216; }
+  .folder-item .f-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder-item .f-count { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .folder-item .f-actions { display: none; gap: 2px; }
+  .folder-item:hover .f-actions { display: flex; }
+  .folder-sep { border-top: 1px solid var(--border); margin: 6px 0; }
+  .icon-btn {
+    background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 3px;
+    font: inherit; font-size: 13px; line-height: 1;
+  }
+  .icon-btn:hover { color: var(--text); }
+  .new-folder { display: flex; gap: 6px; margin-top: 12px; }
+  .new-folder input, .inline-edit, #libFilter {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; min-width: 0;
+  }
+  .new-folder input { flex: 1; }
+  .new-folder input:focus, .inline-edit:focus, #libFilter:focus { outline: none; border-color: var(--gold); }
+  .folder-hint { font-size: 11px; margin-top: 10px; }
+  .lib-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .lib-head h3 { margin: 0; font-size: 18px; }
+  #libFilter { width: 240px; }
+  .build-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .build-card {
+    display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; cursor: pointer; user-select: none;
+    transition: transform .15s ease, border-color .15s ease;
+  }
+  .build-card:hover { transform: translateY(-2px); border-color: var(--gold); }
+  .build-card.dragging { opacity: .45; }
+  .build-card .bc-image {
+    height: 150px; background: var(--panel2); display: flex; align-items: center; justify-content: center;
+  }
+  .build-card .bc-image img { max-width: 100%; max-height: 100%; object-fit: contain; -webkit-user-drag: none; }
+  .build-card .bc-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; }
+  .build-card .bc-name { display: flex; align-items: flex-start; gap: 4px; font-weight: 600; font-size: 14px; }
+  .build-card .bc-name span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .build-card .bc-item { color: var(--gold); font-size: 12px; font-weight: 600; }
+  .build-card .bc-meta { color: var(--muted); font-size: 11px; }
+  .build-card .bc-folder { color: var(--cyan); font-size: 11px; }
+  .inline-edit { width: 100%; }
+  .bh-name { display: flex; align-items: center; gap: 6px; }
+  .bh-original { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .build-head { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 6px; }
+  .build-head h3 { margin: 0; font-size: 18px; }
+  .build-head .bh-item { color: var(--gold); font-weight: 600; font-size: 13px; }
+  .build-head .actions { margin-left: auto; display: flex; gap: 8px; }
+  .mod-section-title { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
+  .build-layout { display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 16px; align-items: start; }
+  @media (max-width: 800px) { .build-layout { grid-template-columns: 1fr; } }
+  /* Plateau de mods : 4 colonnes ; ligne aura/exilus (si présente) puis la grille 4×2. */
+  .mod-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .arcane-stack { display: flex; flex-direction: column; gap: 10px; }
+  .mod-empty { border: 1px dashed var(--border); border-radius: 8px; min-height: 120px; }
+  .mod-spacer { visibility: hidden; }
+  .mod-board .mc-text { display: none; }  /* le nom est déjà imprimé sur la carte du mod */
+  .mods-col, .arcanes-col { display: flex; flex-direction: column; min-width: 0; }
+
+  /* Build ouvert : tout tient dans la fenêtre. Les cartes se partagent la hauteur disponible
+     et leurs images rétrécissent ; seule la fiche du mod défile, dans son propre cadre. */
+  #view-builds.build-open > .view-bar, #view-builds.build-open > #installHelp { display: none; }
+  @media (min-width: 1100px) and (min-height: 560px) {
+    #buildView .builds-grid {
+      grid-template-columns: minmax(0, 1fr) 420px; height: calc(100vh - 57px); padding: 12px 22px;
+    }
+    #buildDetail { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+    #modPanel { height: 100%; overflow-y: auto; }
+    #modPanel .wiki-content { max-height: none; overflow: visible; }
+    #buildDetail .build-layout { flex: 1; min-height: 0; align-items: stretch; }
+    .mods-col .mod-board, .arcanes-col .arcane-stack { flex: 1; min-height: 0; }
+    .mod-board { grid-auto-rows: minmax(0, 1fr); }
+    .mod-board .mod-card, .arcane-stack .mod-card { min-height: 0; padding: 4px; gap: 3px; }
+    .mod-board .mod-card img, .arcane-stack .mod-card img { flex: 1 1 0; min-height: 0; max-height: none; height: 0; }
+    /* Chaque pixel de hauteur va aux images : badge et étiquette par-dessus l'image,
+       rareté masquée (le liseré coloré l'indique déjà), titres de section retirés. */
+    #buildDetail .mod-section-title { display: none; }
+    .mod-board { gap: 8px; }
+    .mod-board .card-head { position: absolute; top: 7px; left: 6px; right: 6px; width: auto; z-index: 1; }
+    .mod-board .slot-tag { background: rgba(14, 17, 23, .88); padding: 1px 7px; border-radius: 999px; }
+    .mod-board .mod-card .rarity, .arcane-stack .mod-card .rarity { display: none; }
+    .mod-board .mc-text, .arcane-stack .mc-text {
+      width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mod-board .mod-empty { min-height: 0; }
+    .arcane-stack .mod-card { flex: 0 1 50%; }
+    .mod-title img { height: auto; max-height: 30vh; }
+  }
+  .card-head { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 20px; }
+  .card-head .slot-tag { margin: 0 0 0 auto; }
+  .pol-badge {
+    display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px;
+    border-radius: 999px; font-size: 11px; font-weight: 700; line-height: 1.4;
+    background: rgba(14, 17, 23, .88); border: 1px solid var(--border); color: var(--muted);
+  }
+  .pol-badge.match { color: var(--green); border-color: rgba(92, 217, 146, .55); }
+  .pol-badge.mismatch { color: var(--red); border-color: rgba(255, 107, 107, .55); }
+  .pol-icon {
+    width: 13px; height: 13px; background: currentColor;
+    -webkit-mask: var(--pol) center / contain no-repeat; mask: var(--pol) center / contain no-repeat;
+  }
+  .forma-mark { color: var(--gold); font-size: 9px; }
+  .forma-count { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .slot-tag {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--gold);
+  }
+  .mod-card {
+    --rc: var(--muted);  /* couleur de rareté : barre du haut, cadre de sélection et halo */
+    position: relative;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    background: var(--panel2); border: 1px solid var(--border); border-top: 3px solid var(--rc);
+    border-radius: 8px; padding: 10px 8px; text-align: center; color: var(--text); font: inherit;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: transform .15s ease, background .15s ease;
+    user-select: none; -webkit-user-select: none;
+  }
+  .mod-card img, .mod-title img { -webkit-user-drag: none; user-select: none; -webkit-user-select: none; }
+  .mod-card::after {
+    content: ""; position: absolute; inset: -1px; border: 2px solid var(--rc); border-radius: 8px;
+    pointer-events: none; clip-path: inset(0 0 100% 0);
+  }
+  /* La carte est recréée à chaque sélection : une animation (et non une transition) rejoue l'effet. */
+  .mod-card.active::after { animation: rarity-fill .45s ease-out both; }
+  .mod-card.active { animation: rarity-glow .45s ease-out both; }
+  @keyframes rarity-fill { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+  @keyframes rarity-glow { from { box-shadow: 0 0 0 0 transparent; } to { box-shadow: 0 0 16px -3px var(--rc); } }
+  .mod-card img { width: 100%; height: auto; max-height: 240px; object-fit: contain; }
+  .mod-card .mc-text { min-width: 0; }
+  .mod-title { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+  .mod-title img { max-width: 100%; height: 300px; object-fit: contain; }
+  .mod-card:hover { background: #242c3a; transform: translateY(-2px); }
+  .mod-card .rarity { display: block; font-size: 11px; font-weight: 400; color: var(--muted); text-transform: capitalize; }
+  .mod-card.r-common { --rc: #b8875c; }
+  .mod-card.r-uncommon { --rc: #c6ccd6; }
+  .mod-card.r-rare { --rc: var(--gold); }
+  .mod-card.r-legendary { --rc: #e8e4ff; }
+  .mod-card.r-riven, .mod-card.r-amalgam, .mod-card.r-galvanized, .mod-card.r-archon { --rc: #b98cff; }
+  @media (prefers-reduced-motion: reduce) {
+    .mod-card, .mod-card.active, .mod-card.active::after { animation-duration: 1ms; transition: none; }
+  }
+  .mod-panel { scroll-margin-top: 70px; }  /* ne pas passer sous la barre de navigation fixe */
+  .mod-panel h3 { margin: 0 0 4px; font-size: 17px; }
+  .mod-panel .links { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .price-box {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0;
+  }
+  .price-box div { background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+  .price-box .label { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+  .price-box .value { font-size: 18px; font-weight: 700; color: var(--gold); }
+  .wiki-content {
+    max-height: 60vh; overflow: auto; font-size: 13px; line-height: 1.55;
+    border-top: 1px solid var(--border); padding-top: 8px;
+  }
+  .wiki-content a { color: var(--cyan); }
+  .wiki-content table {
+    min-width: 0; width: 100%; font-size: 12px; margin: 10px 0;
+    border-collapse: collapse; border: 1px solid var(--border);
+  }
+  .wiki-content th, .wiki-content td {
+    padding: 6px 8px; text-align: left; white-space: normal; vertical-align: middle;
+    border: 1px solid var(--border);
+  }
+  .wiki-content th {
+    background: var(--panel2); color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: .3px;
+  }
+  .wiki-content tbody tr:nth-child(even) td { background: rgba(255, 255, 255, .03); }
+  .wiki-content tbody tr:hover td { background: rgba(224, 180, 92, .08); }
+  .wiki-content img { vertical-align: middle; max-height: 32px; width: auto; }
+  .wiki-content ul { padding-left: 18px; }
+  .install {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; margin: 0 22px; color: var(--muted); font-size: 13px;
+  }
+  .install ol { margin: 6px 0 0; padding-left: 20px; }
+  .install code { background: var(--panel2); padding: 1px 6px; border-radius: 4px; color: var(--text); }
+  .install li { margin: 4px 0; }
+  #primeScanBtn {
+    background: #2a2416; color: var(--gold); border: 1px solid var(--gold);
+    border-radius: 8px; padding: 8px 20px; font: inherit; font-size: 14px;
+    font-weight: 600; cursor: pointer;
+  }
+  #primeScanBtn:disabled { opacity: .5; cursor: default; }
+  #view-prime h2 { font-size: 15px; margin: 22px 0 10px; }
+  #view-prime h2 span { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .notes { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  td.profit { font-weight: 700; color: var(--green); }
+  td.score { font-weight: 700; color: var(--gold); }
+  td.name a { color: inherit; text-decoration: none; }
+  td.name a:hover { color: var(--gold); text-decoration: underline dotted; }
+
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 700px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .card .value { font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .card .sub { color: var(--muted); font-size: 12px; }
+  .card.red .value { color: var(--red); }
+  .card.cyan .value { color: var(--cyan); }
+  .card.green .value { color: var(--green); }
+
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+  .toolbar button {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 13px;
+  }
+  .toolbar button.active { color: var(--text); border-color: var(--gold); background: #2a2416; }
+  .toolbar input {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; width: 220px;
+  }
+  .toolbar input:focus { outline: none; border-color: var(--gold); }
+
+  .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  th, td { padding: 8px 14px; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th {
+    color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel);
+  }
+  tbody tr { border-bottom: 1px solid #1c2330; }
+  tbody tr:hover { background: var(--panel2); }
+  td.name { font-weight: 500; cursor: pointer; }
+  td.name:hover { color: var(--gold); text-decoration: underline dotted; }
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #163526; color: var(--green); border: 1px solid #2a5a40;
+    border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  #toast.show { opacity: 1; }
+  #toast.err { background: #3a1d1d; color: var(--red); border-color: #5c2b2b; }
+  .apply-btn {
+    background: #2a2416; color: var(--gold); border: 1px solid var(--gold);
+    border-radius: 6px; padding: 2px 10px; font: inherit; font-size: 12px;
+    font-weight: 600; cursor: pointer; margin-left: 8px;
+  }
+  .apply-btn:hover { background: #3a3216; }
+  .apply-btn:disabled { opacity: .5; cursor: default; }
+  .hint {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--muted); padding: 10px 16px; margin-bottom: 14px; font-size: 13px;
+    display: none;
+  }
+  .hint code { background: var(--panel2); padding: 1px 6px; border-radius: 4px; color: var(--text); }
+  .hint form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  .hint input {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 13px; width: 220px;
+  }
+  .hint input:focus { outline: none; border-color: var(--gold); }
+  .hint button {
+    background: #2a2416; color: var(--gold); border: 1px solid var(--gold);
+    border-radius: 8px; padding: 6px 16px; font: inherit; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+  }
+  .hint button:disabled { opacity: .5; cursor: default; }
+  .hint details { margin-top: 8px; }
+  .hint summary { cursor: pointer; }
+  #logoutBtn {
+    background: none; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  #logoutBtn:hover { color: var(--text); }
+  td.conseil { font-weight: 700; color: var(--gold); }
+  .chip {
+    display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  }
+  .chip.trop_cher { background: #3a1d1d; color: var(--red); }
+  .chip.trop_bas { background: #14313d; color: var(--cyan); }
+  .chip.optimal { background: #163526; color: var(--green); }
+  .chip.no_data { background: var(--panel2); color: var(--muted); }
+  .lowvol { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .flash { animation: flash 2.5s ease-out; }
+  @keyframes flash { 0% { background: #3a3216; } 100% { background: transparent; } }
+
+  aside .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  aside h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .journal { max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .entry { border-left: 3px solid var(--border); padding: 2px 10px; font-size: 13px; }
+  .entry .when { color: var(--muted); font-size: 11px; }
+  .entry .item { font-weight: 600; }
+  .entry.conseil { border-left-color: var(--gold); }
+  .entry.sold { border-left-color: var(--green); }
+  .entry.new { border-left-color: var(--cyan); }
+  .empty { color: var(--muted); font-style: italic; }
+
+  .error {
+    background: #3a1d1d; color: var(--red); border: 1px solid #5c2b2b; border-radius: 10px;
+    padding: 10px 16px; margin-bottom: 14px; display: none;
+  }
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="brand">Warframe Market <span id="pseudo">…</span></div>
+  <div class="nav-links">
+    <button class="nav-link active" data-view="prix">📈 Mes prix</button>
+    <button class="nav-link" data-view="prime">🔍 Analyse Prime</button>
+    <button class="nav-link" data-view="builds">🛠️ Builds</button>
+  </div>
+  <div class="account">
+    <span class="meta" id="accountStatus">Non connecté</span>
+    <button id="logoutBtn" hidden title="Oublier le jeton warframe.market">Déconnecter</button>
+  </div>
+</nav>
+
+<section class="view" id="view-prime" hidden>
+  <div class="view-bar">
+    <button id="primeScanBtn">🔍 Analyser les primes</button>
+    <div class="meta" id="primeStatus">Aucune analyse pour l'instant — lance-la avec le bouton.</div>
+  </div>
+  <div class="prime-body">
+  <div class="error" id="primeError"></div>
+
+  <h2>💰 Flips sur les sets vaultés <span id="flipCount"></span></h2>
+  <div class="meta" style="margin-bottom:8px">Achat au prix le plus bas (vendeur en jeu), revente alignée sur le suivant — bénéfice prudent = min(P2, SMA) − P1, seuil 10p.</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Set</th><th>P1 (achat)</th><th>Vendeur</th><th>P2</th><th>P3</th><th>SMA 90j</th><th>Vol/j</th><th>Revente</th><th>Bénéfice</th></tr></thead>
+      <tbody id="flipRows"><tr><td colspan="9" class="empty">En attente d'une analyse.</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>⛏️ Score de farm des pièces disponibles <span id="farmCount"></span></h2>
+  <div class="meta" style="margin-bottom:8px">Score = SMA × chance de la pièce (radiant) × chance de la relique sur son node de farm (Hepit / Ukko / Ur / Apollo). Resurgence exclue.</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Pièce</th><th>Relique</th><th>Node</th><th>% pièce (rad)</th><th>% relique</th><th>SMA</th><th>Vol/j</th><th>Score</th></tr></thead>
+      <tbody id="farmRows"><tr><td colspan="8" class="empty">En attente d'une analyse.</td></tr></tbody>
+    </table>
+  </div>
+  <div class="notes" id="primeNotes"></div>
+  </div>
+</section>
+
+<section class="view" id="view-builds" hidden>
+  <div class="view-bar">
+    <form class="of-search" id="ofSearchForm">
+      <input type="search" id="ofSearchInput" placeholder="Warframe ou arme (ex. Rhino Prime)…" required>
+      <button type="submit" class="btn-gold">Chercher sur Overframe ↗</button>
+    </form>
+    <div class="spacer"></div>
+    <a class="btn-gold" href="/wfm-overframe.user.js" title="Nécessite l'extension Tampermonkey">🧩 Installer le bouton Overframe</a>
+  </div>
+
+  <details class="install" id="installHelp" style="margin-top:14px">
+    <summary style="cursor:pointer;color:var(--text)">Comment importer un build Overframe ?</summary>
+    <ol>
+      <li>Installe l'extension <b>Tampermonkey</b> depuis le Chrome Web Store (une seule fois).
+        Dans <code>chrome://extensions</code>, ouvre les <b>Détails</b> de Tampermonkey et active
+        <b>« Autoriser les scripts utilisateur »</b> (sur les versions plus anciennes de Chrome : le <b>mode développeur</b>).</li>
+      <li>Clique sur <b>🧩 Installer le bouton Overframe</b> ci-dessus, puis sur <b>Installer</b> dans Tampermonkey.</li>
+      <li>Cherche ta Warframe ou ton arme avec la barre ci-dessus, ouvre un build sur Overframe et clique sur
+        <b>➕ Ajouter au tableau de bord</b> en bas à droite : tu reviens ici avec le build.</li>
+    </ol>
+    <p style="margin:10px 0 0">Sans Tampermonkey (autre ordinateur…) : glisse ce favori dans ta barre de favoris et
+      clique dessus depuis un build Overframe :
+      <a class="bookmarklet" id="bookmarklet" href="#" draggable="true" title="Glisse ce bouton dans ta barre de favoris">📥 Envoyer au tableau de bord</a></p>
+  </details>
+
+  <div class="library-grid" id="libraryView">
+    <div class="panel folder-panel">
+      <h2>Dossiers</h2>
+      <div class="folder-list" id="folderList"></div>
+      <form class="new-folder" id="newFolderForm">
+        <input id="newFolderName" placeholder="Nouveau dossier…" maxlength="60" required>
+        <button type="submit" class="btn-ghost" title="Créer le dossier">＋</button>
+      </form>
+      <div class="meta folder-hint">Glisse une carte sur un dossier pour la ranger.</div>
+    </div>
+
+    <div>
+      <div class="lib-head">
+        <h3 id="libTitle">Tous les builds</h3>
+        <span class="meta" id="libCount"></span>
+        <div class="spacer"></div>
+        <input id="libFilter" type="search" placeholder="Filtrer par nom ou objet…">
+      </div>
+      <div class="build-cards" id="buildCards"></div>
+    </div>
+  </div>
+
+  <div id="buildView" hidden>
+    <div class="builds-grid">
+      <div class="panel" id="buildDetail"></div>
+      <div class="panel mod-panel" id="modPanel">
+        <div class="empty">Clique sur un mod ou un arcane pour savoir où l'obtenir.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="view-prix">
+  <div class="view-bar">
+    <div class="meta" id="lastScan">Aucun scan — lance 🔄 Rescanner ou active le mode ⚡ Auto.</div>
+    <div class="spacer"></div>
+    <div class="pill scanning" id="scanPill" hidden>Scan en cours… <b id="scanProgress"></b></div>
+    <div class="pill" id="nextPill" hidden>Prochain scan dans <b id="countdown">–</b></div>
+    <button id="fastBtn" hidden title="Applique automatiquement les prix conseillés après chaque scan et enchaîne les scans">⚡ Auto : OFF</button>
+    <button id="rescanBtn" title="Lancer un scan maintenant">🔄 Rescanner</button>
+  </div>
+  <div class="prices-grid">
+  <section>
+    <div class="error" id="error"></div>
+    <div class="hint" id="tokenHint">
+      🔑 <b>Connecte ton compte warframe.market</b> pour modifier tes prix en un clic.
+      Tes identifiants sont envoyés une seule fois à warframe.market (jamais stockés) ;
+      seul le jeton de session est conservé, en local.
+      <form id="loginForm">
+        <input type="email" id="loginEmail" placeholder="Email warframe.market" autocomplete="username" required>
+        <input type="password" id="loginPassword" placeholder="Mot de passe" autocomplete="current-password" required>
+        <button type="submit" id="loginBtn">Se connecter</button>
+      </form>
+      <details>
+        <summary>Compte créé via Google/Discord ? Méthode alternative</summary>
+        Connecte-toi sur warframe.market, ouvre les outils de développement (F12) →
+        Application → Cookies → copie la valeur du cookie <code>JWT</code> dans un fichier
+        <code>wfm_token.txt</code> à côté de <code>server.py</code>, puis redémarre le serveur.
+      </details>
+    </div>
+    <div class="cards">
+      <div class="card"><div class="label">Ordres suivis</div><div class="value" id="cTotal">–</div><div class="sub" id="cOptimal"></div></div>
+      <div class="card red"><div class="label">À baisser</div><div class="value" id="cBaisser">–</div><div class="sub" id="cPerte"></div></div>
+      <div class="card cyan"><div class="label">Sous-évalués</div><div class="value" id="cMonter">–</div><div class="sub" id="cGain"></div></div>
+      <div class="card green"><div class="label">Prix optimaux</div><div class="value" id="cOk">–</div><div class="sub">rien à faire</div></div>
+    </div>
+
+    <div class="toolbar">
+      <button data-filter="all" class="active">Tous</button>
+      <button data-filter="trop_cher">À baisser</button>
+      <button data-filter="trop_bas">Sous-évalués</button>
+      <button data-filter="optimal">Optimaux</button>
+      <input id="search" type="search" placeholder="Filtrer par nom…">
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Objet</th><th>Ton prix</th><th>+ bas en jeu</th><th>SMA 90j</th><th>Conseillé</th><th style="text-align:left">Statut</th></tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="6" class="empty">Aucun scan pour l'instant — utilise 🔄 Rescanner, ou active ⚡ Auto pour un suivi continu.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h2>Journal des changements</h2>
+      <div class="journal" id="journal"><div class="empty">Les changements entre deux scans apparaîtront ici.</div></div>
+    </div>
+  </aside>
+  </div>
+</section>
+
+<div id="toast">✓ copié</div>
+
+<script>
+const $ = id => document.getElementById(id);
+// Nom visé par le bouton Overframe (window.open(..., "wfm-dashboard")) pour réutiliser cet onglet.
+window.name = "wfm-dashboard";
+let toastTimer = null;
+
+function showToast(message, isError) {
+  const t = $("toast");
+  t.textContent = message;
+  t.classList.toggle("err", !!isError);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), isError ? 4000 : 1800);
+}
+
+document.getElementById("rows").addEventListener("click", async e => {
+  const btn = e.target.closest(".apply-btn");
+  if (btn) {
+    btn.disabled = true;
+    try {
+      const resp = await fetch("/api/set-price", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({order_id: btn.dataset.order, platinum: Number(btn.dataset.price)}),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        showToast("✓ Prix mis à jour : " + btn.dataset.price + "p", false);
+        poll();
+      } else {
+        showToast("✗ " + (data.message || "Échec de la mise à jour"), true);
+        btn.disabled = false;
+      }
+    } catch (err) {
+      showToast("✗ Serveur injoignable", true);
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  const cell = e.target.closest("td.name");
+  if (!cell) return;
+  const name = cell.dataset.copy;
+  try {
+    await navigator.clipboard.writeText(name);
+  } catch (err) {
+    const ta = document.createElement("textarea");
+    ta.value = name; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove();
+  }
+  showToast("✓ « " + name + " » copié", false);
+});
+let currentFilter = "all";
+let searchTerm = "";
+let lastResults = null;
+let nextScanAt = null;
+let clockOffset = 0;
+let canUpdate = false;
+let fastMode = false;
+
+const STATUS_LABEL = {
+  trop_cher: d => `⬆️ trop cher (-${d}p)`,
+  trop_bas: d => `💰 trop bas (+${d}p)`,
+  optimal: () => "✅ optimal",
+  no_data: () => "pas de données",
+};
+
+const fmt = v => v === null || v === undefined ? "–" : v;
+const heure = t => new Date(t * 1000).toLocaleTimeString("fr-FR", {hour: "2-digit", minute: "2-digit"});
+
+function render(state) {
+  $("pseudo").textContent = state.ingame_name + " (" + state.platform.toUpperCase() + ")";
+  clockOffset = Date.now() / 1000 - state.now;
+  nextScanAt = state.next_scan_at;
+
+  canUpdate = !!state.can_update;
+  fastMode = !!state.fast_mode;
+  $("tokenHint").style.display = canUpdate ? "none" : "block";
+  $("logoutBtn").hidden = !canUpdate;
+  $("accountStatus").innerHTML = canUpdate ? '<span class="dot">●</span> Compte connecté' : "Non connecté";
+  $("fastBtn").hidden = !canUpdate;
+  $("fastBtn").textContent = fastMode ? "⚡ Auto : ON" : "⚡ Auto : OFF";
+  $("fastBtn").classList.toggle("on", fastMode);
+  $("error").style.display = state.error ? "block" : "none";
+  if (state.error) $("error").textContent = "Dernier scan en échec : " + state.error + " — les données affichées datent du scan précédent.";
+
+  $("scanPill").hidden = !state.scanning;
+  $("nextPill").hidden = state.scanning || !state.next_scan_at;
+  $("rescanBtn").disabled = state.scanning;
+  if (state.scanning) $("scanProgress").textContent = state.progress[0] + "/" + state.progress[1];
+
+  if (state.last_scan_at) {
+    $("lastScan").textContent = "Dernière mise à jour à " + heure(state.last_scan_at) + " — scan n°" + state.scan_count;
+  }
+
+  if (state.summary) {
+    $("cTotal").textContent = state.summary.total;
+    $("cOptimal").textContent = "";
+    $("cBaisser").textContent = state.summary.a_baisser;
+    $("cPerte").textContent = "écart cumulé : " + state.summary.perte + "p";
+    $("cMonter").textContent = state.summary.a_monter;
+    $("cGain").textContent = "manque à gagner : " + state.summary.gain + "p";
+    $("cOk").textContent = state.summary.optimal;
+  }
+
+  if (state.results.length) renderTable(state.results);
+  renderJournal(state.changes);
+  if (state.prime) renderPrime(state.prime);
+  renderLibrary(state.library || {builds: [], folders: []});
+}
+
+function marketLink(name, slug) {
+  const s = slug || name.toLowerCase().replace(/ & /g, " and ").replace(/[^a-z0-9 ]/g, "").trim().replace(/ +/g, "_");
+  return `<a href="https://warframe.market/items/${s}" target="_blank" rel="noopener" title="Ouvrir sur warframe.market">${name}</a>`;
+}
+
+function renderPrime(p) {
+  const running = p.status === "running";
+  $("primeScanBtn").disabled = running;
+
+  if (running) {
+    const prog = p.progress && p.progress[1] ? ` ${p.progress[0]}/${p.progress[1]}` : "";
+    $("primeStatus").textContent = (p.phase || "Analyse en cours...") + prog;
+  } else if (p.status === "done" && p.finished_at) {
+    $("primeStatus").textContent = "Dernière analyse à " + heure(p.finished_at) + ".";
+  } else if (p.status === "error") {
+    $("primeStatus").textContent = "Analyse en échec.";
+  }
+
+  $("primeError").style.display = p.status === "error" ? "block" : "none";
+  if (p.error) $("primeError").textContent = "Erreur : " + p.error;
+
+  $("flipCount").textContent = p.flips.length ? `— ${p.flips.length} opportunité(s)` : "";
+  $("farmCount").textContent = p.farms.length ? `— ${p.farms.length} pièce(s)` : "";
+
+  if (p.flips.length) {
+    $("flipRows").innerHTML = p.flips.map(f => `<tr>
+      <td class="name">${marketLink(f.name, f.slug)}</td>
+      <td>${f.p1}p</td>
+      <td style="text-align:left;color:var(--muted)">${f.seller}</td>
+      <td>${f.p2}p</td>
+      <td>${fmt(f.p3)}${f.p3 !== null ? "p" : ""}</td>
+      <td>${fmt(f.sma)}${f.sma !== null ? "p" : ""}</td>
+      <td>${fmt(f.vol_day)}</td>
+      <td>${f.resale}p</td>
+      <td class="profit">+${f.profit}p</td>
+    </tr>`).join("");
+  } else if (!running) {
+    $("flipRows").innerHTML = `<tr><td colspan="9" class="empty">${p.status === "done" ? "Aucun flip ≥ 10p trouvé." : "En attente d'une analyse."}</td></tr>`;
+  } else if (running && !p.flips.length) {
+    $("flipRows").innerHTML = `<tr><td colspan="9" class="empty">Analyse en cours...</td></tr>`;
+  }
+
+  if (p.farms.length) {
+    const sorted = [...p.farms].sort((a, b) => b.score - a.score);
+    $("farmRows").innerHTML = sorted.map(f => `<tr>
+      <td class="name">${marketLink(f.name, f.slug)}</td>
+      <td>${f.relic}</td>
+      <td style="text-align:left;color:var(--muted)">${f.node}</td>
+      <td>${f.piece_chance}%</td>
+      <td>${f.relic_chance}%</td>
+      <td>${f.sma}p</td>
+      <td>${fmt(f.vol_day)}</td>
+      <td class="score">${f.score}</td>
+    </tr>`).join("");
+  } else if (running) {
+    $("farmRows").innerHTML = `<tr><td colspan="8" class="empty">Analyse en cours...</td></tr>`;
+  }
+
+  $("primeNotes").textContent = (p.notes || []).join(" ");
+}
+
+function renderTable(results) {
+  const changed = new Set();
+  if (lastResults) {
+    const prev = Object.fromEntries(lastResults.map(r => [r.name, r]));
+    for (const r of results) {
+      const o = prev[r.name];
+      if (o && (o.my_price !== r.my_price || o.lowest !== r.lowest || o.conseille !== r.conseille)) changed.add(r.name);
+    }
+  }
+  lastResults = results;
+
+  const rows = results
+    .filter(r => currentFilter === "all" || r.statut === currentFilter)
+    .filter(r => r.name.toLowerCase().includes(searchTerm))
+    .map(r => {
+      const diff = r.conseille === null ? 0 : Math.abs(r.my_price - r.conseille);
+      const lowvol = r.vol_day !== null && r.vol_day < 2 ? `<span class="lowvol">peu de ventes (${r.vol_day}/j)</span>` : "";
+      const applyBtn = canUpdate && r.order_id && r.conseille !== null && r.conseille !== r.my_price
+        ? `<button class="apply-btn" data-order="${r.order_id}" data-price="${r.conseille}" title="Passer le prix à ${r.conseille}p sur warframe.market">→ ${r.conseille}p</button>`
+        : "";
+      return `<tr class="${changed.has(r.name) ? "flash" : ""}">
+        <td class="name" data-copy="${(r.base_name || r.name).replace(/"/g, "&quot;")}" title="Cliquer pour copier le nom">${r.name}</td>
+        <td>${r.my_price}p</td>
+        <td>${fmt(r.lowest)}${r.lowest !== null ? "p" : ""}</td>
+        <td>${fmt(r.sma)}${r.sma !== null ? "p" : ""}</td>
+        <td class="conseil">${fmt(r.conseille)}${r.conseille !== null ? "p" : ""}</td>
+        <td style="text-align:left"><span class="chip ${r.statut}">${STATUS_LABEL[r.statut](diff)}</span>${applyBtn}${lowvol}</td>
+      </tr>`;
+    });
+  $("rows").innerHTML = rows.length ? rows.join("") : `<tr><td colspan="6" class="empty">Aucun objet ne correspond au filtre.</td></tr>`;
+}
+
+function renderJournal(changes) {
+  if (!changes.length) return;
+  $("journal").innerHTML = changes.map(c => `
+    <div class="entry ${c.kind}">
+      <div class="when">${heure(c.time)}</div>
+      <span class="item">${c.item}</span> — ${c.text}
+    </div>`).join("");
+}
+
+function tickCountdown() {
+  if (nextScanAt === null) return;
+  const left = Math.max(0, Math.round(nextScanAt - (Date.now() / 1000 - clockOffset)));
+  $("countdown").textContent = left >= 60 ? Math.floor(left / 60) + "min " + (left % 60) + "s" : left + "s";
+}
+
+async function poll() {
+  try {
+    const resp = await fetch("/api/state");
+    render(await resp.json());
+  } catch (e) {
+    $("lastScan").textContent = "Serveur injoignable — il est peut-être arrêté.";
+  }
+}
+
+// ---------- Vue Builds ----------
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+let buildsData = [];
+let foldersData = [];
+let librarySig = null;
+let detailSig = null;
+let selectedBuildId = null;  // build ouvert ; null = bibliothèque affichée
+let selectedMod = null;
+let currentFolder = "all";   // "all", "unsorted" ou l'id d'un dossier
+let imagesRequested = false;
+
+// Requête d'écriture vers le serveur ; affiche l'erreur et rafraîchit l'état.
+async function api(path, body) {
+  try {
+    const resp = await fetch(path, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body || {}),
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      showToast("✗ " + (data.message || "Action refusée"), true);
+      return null;
+    }
+    await poll();
+    return data;
+  } catch (e) {
+    showToast("✗ Serveur injoignable", true);
+    return null;
+  }
+}
+
+// Bookmarklet de secours : même code de lecture que le script Tampermonkey (overframe_export.js).
+fetch("/overframe-export.js").then(r => r.text()).then(src => {
+  const code = `(function () { ${src}\noverframeExport(${JSON.stringify(location.origin)}); })()`;
+  $("bookmarklet").href = "javascript:" + encodeURIComponent(code);
+}).catch(() => {});
+$("bookmarklet").addEventListener("click", e => {
+  e.preventDefault();
+  showToast("Glisse ce bouton dans ta barre de favoris, puis clique dessus depuis un build Overframe.", false);
+});
+
+
+async function importBuild(json) {
+  let payload;
+  try { payload = JSON.parse(json); } catch (e) { showToast("✗ Données de build illisibles", true); return; }
+  try {
+    const resp = await fetch("/api/builds/import", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!data.ok) { showToast("✗ " + (data.message || "Import refusé"), true); return; }
+    // Ouverture directe du build importé ; le prochain état du serveur le contient déjà.
+    selectedBuildId = data.id;
+    selectedMod = null;
+    librarySig = detailSig = null;
+    $("modPanel").innerHTML = `<div class="empty">Clique sur un mod ou un arcane pour savoir où l'obtenir.</div>`;
+    showToast("✓ Build importé : " + (payload.item || "") + " — " + (payload.title || ""), false);
+    await poll();
+  } catch (e) {
+    showToast("✗ Serveur injoignable", true);
+  }
+}
+
+const displayName = b => b.custom_name || b.title;
+const folderName = id => (foldersData.find(f => f.id === id) || {}).name;
+
+function renderLibrary(lib) {
+  const firstRender = librarySig === null;
+  buildsData = lib.builds || [];
+  foldersData = lib.folders || [];
+  if (selectedBuildId && !buildsData.some(b => b.id === selectedBuildId)) selectedBuildId = null;
+  if (currentFolder !== "all" && currentFolder !== "unsorted" && !foldersData.some(f => f.id === currentFolder)) {
+    currentFolder = "all";  // dossier supprimé entre-temps
+  }
+
+  const withImage = b => b.mods.concat(b.arcanes).filter(m => m.image).length;
+  if (!imagesRequested && buildsData.some(b => !b.item_image || withImage(b) < b.mods.length + b.arcanes.length)) {
+    imagesRequested = true;  // une seule tentative par session : certains noms n'ont pas d'image
+    fetch("/api/builds/images", {method: "POST"}).then(() => poll()).catch(() => {});
+  }
+  if (firstRender && !buildsData.length) $("installHelp").open = true;
+
+  $("libraryView").hidden = !!selectedBuildId;
+  $("buildView").hidden = !selectedBuildId;
+  $("view-builds").classList.toggle("build-open", !!selectedBuildId);
+
+  // Pas de nouveau rendu pendant une saisie : le rafraîchissement périodique effacerait le champ.
+  if (document.activeElement && document.activeElement.classList.contains("inline-edit")) return;
+
+  const sig = JSON.stringify([buildsData.map(b => [b.id, b.custom_name, b.folder_id, b.item_image, withImage(b)]),
+    foldersData, currentFolder, $("libFilter").value, selectedBuildId]);
+  if (sig !== librarySig) {
+    librarySig = sig;
+    renderFolders();
+    renderCards();
+  }
+  if (selectedBuildId) {
+    const b = buildsData.find(x => x.id === selectedBuildId);
+    const dsig = JSON.stringify([b, selectedMod]);
+    if (dsig !== detailSig) {
+      detailSig = dsig;
+      renderBuildDetail();
+    }
+  }
+}
+
+function renderFolders() {
+  const count = pred => buildsData.filter(pred).length;
+  const item = (id, name, n, editable) => `
+    <div class="folder-item${currentFolder === id ? " active" : ""}" data-folder="${esc(id)}"${id === "all" ? "" : ' data-drop="1"'}>
+      <span class="f-name" title="${esc(name)}">${esc(name)}</span>
+      ${editable ? `<span class="f-actions">
+        <button type="button" class="icon-btn" data-rename-folder="${esc(id)}" title="Renommer">✏️</button>
+        <button type="button" class="icon-btn" data-delete-folder="${esc(id)}" title="Supprimer le dossier">🗑</button>
+      </span>` : ""}
+      <span class="f-count">${n}</span>
+    </div>`;
+  $("folderList").innerHTML =
+    item("all", "📚 Tous les builds", buildsData.length, false) +
+    item("unsorted", "📥 Non classés", count(b => !b.folder_id), false) +
+    (foldersData.length ? '<div class="folder-sep"></div>' : "") +
+    foldersData.map(f => item(f.id, "📁 " + f.name, count(b => b.folder_id === f.id), true)).join("");
+}
+
+function renderCards() {
+  const q = $("libFilter").value.trim().toLowerCase();
+  const inFolder = b => currentFolder === "all" || (currentFolder === "unsorted" ? !b.folder_id : b.folder_id === currentFolder);
+  const list = buildsData
+    .filter(inFolder)
+    .filter(b => !q || [displayName(b), b.title, b.item].some(s => String(s || "").toLowerCase().includes(q)))
+    .sort((x, y) => (y.imported_at || 0) - (x.imported_at || 0));
+
+  $("libTitle").textContent = currentFolder === "all" ? "Tous les builds"
+    : currentFolder === "unsorted" ? "Non classés" : folderName(currentFolder);
+  $("libCount").textContent = `${list.length} build${list.length > 1 ? "s" : ""}`;
+
+  const date = t => t ? new Date(t * 1000).toLocaleDateString("fr-FR", {day: "numeric", month: "short"}) : "";
+  $("buildCards").innerHTML = list.length ? list.map(b => `
+    <div class="build-card" draggable="true" data-id="${esc(b.id)}" title="Clique pour ouvrir, glisse sur un dossier pour ranger">
+      <div class="bc-image">${modImage(b.item_image)}</div>
+      <div class="bc-body">
+        <div class="bc-item">${esc(b.item || "?")}</div>
+        <div class="bc-name"><span>${esc(displayName(b))}</span>
+          <button type="button" class="icon-btn" data-rename-build="${esc(b.id)}" title="Renommer">✏️</button></div>
+        <div class="bc-meta">${Number.isInteger(b.formas) ? `◆ ${b.formas} forma${b.formas > 1 ? "s" : ""} · ` : ""}${b.mods.length} mods · ${b.arcanes.length} arcane${b.arcanes.length > 1 ? "s" : ""} · ${date(b.imported_at)}</div>
+        ${currentFolder === "all" && b.folder_id ? `<div class="bc-folder">📁 ${esc(folderName(b.folder_id) || "")}</div>` : ""}
+      </div>
+    </div>`).join("")
+    : `<div class="empty">${buildsData.length ? "Aucun build ici." : "Aucun build pour l'instant : importe-en un depuis Overframe."}</div>`;
+}
+
+// Remplace un texte par un champ de saisie ; Entrée ou clic ailleurs valide, Échap annule.
+function inlineEdit(host, initial, onSave) {
+  const input = document.createElement("input");
+  input.className = "inline-edit";
+  input.value = initial;
+  input.maxLength = 120;
+  host.replaceChildren(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = save => {
+    if (done) return;
+    done = true;
+    input.blur();  // tant que le champ a le focus, le rendu est suspendu (voir renderLibrary)
+    librarySig = detailSig = null;  // redessiner à partir de l'état serveur
+    if (save && input.value.trim() !== initial) onSave(input.value.trim());
+    else poll();
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+  input.addEventListener("click", e => e.stopPropagation());
+}
+
+function openBuild(id) {
+  selectedBuildId = id;
+  selectedMod = null;
+  librarySig = detailSig = null;
+  $("modPanel").innerHTML = `<div class="empty">Clique sur un mod ou un arcane pour savoir où l'obtenir.</div>`;
+  renderLibrary({builds: buildsData, folders: foldersData});
+  window.scrollTo(0, 0);
+}
+
+function closeBuild() {
+  selectedBuildId = null;
+  selectedMod = null;
+  librarySig = detailSig = null;
+  renderLibrary({builds: buildsData, folders: foldersData});
+}
+
+// Image absente ou introuvable : l'élément disparaît plutôt que d'afficher une icône cassée.
+const modImage = url => url ? `<img src="${esc(url)}" alt="" loading="lazy" draggable="false" onerror="this.remove()">` : "";
+
+// Codes de polarité du jeu -> nom et icône du wiki (noire, recolorée en CSS via un masque).
+const WIKI_IMG = "https://wiki.warframe.com/images/";
+const POLARITY = {
+  AP_ATTACK: ["Madurai", "Madurai_Pol%28xBlack%29.svg"],
+  AP_DEFENSE: ["Vazarin", "Vazarin_Pol%28xBlack%29.svg"],
+  AP_TACTIC: ["Naramon", "Naramon_Pol%28xBlack%29.svg"],
+  AP_POWER: ["Zenurik", "Zenurik_Pol%28xBlack%29.svg"],
+  AP_WARD: ["Unairu", "Unairu_Pol%28xBlack%29.svg"],
+  AP_PRECEPT: ["Penjaga", "Penjaga_Pol%28xBlack%29.svg"],
+  AP_UMBRA: ["Umbra", "Umbra_Pol%28xBlack%29.svg"],
+  AP_ANY: ["universelle", "Any_Pol%28xBlack%29.png"],
+  AP_UNIVERSAL: ["universelle", "Any_Pol%28xBlack%29.png"],
+};
+const MATCH_LABEL = {
+  match: "le mod correspond : coût divisé par 2",
+  mismatch: "le mod ne correspond pas : coût augmenté",
+  neutral: "slot sans polarité",
+};
+
+function polarityBadge(m) {
+  if (!m.slot_polarity && !m.drain_text) return "";
+  const code = m.slot_polarity || m.mod_polarity;
+  const pol = POLARITY[code];
+  const icon = pol ? `<i class="pol-icon" style="--pol:url('${WIKI_IMG}${pol[1]}')"></i>` : "";
+  const state = m.match || "neutral";
+  const title = [
+    m.slot_polarity ? `Slot ${pol ? pol[0] : m.slot_polarity}${m.forma ? " (forma)" : ""}` : "Slot sans polarité",
+    MATCH_LABEL[state],
+    m.drain_text ? `coût appliqué : ${m.drain_text}` : "",
+  ].filter(Boolean).join(" — ");
+  return `<span class="pol-badge ${state}" title="${esc(title)}">${m.forma ? '<span class="forma-mark">◆</span>' : ""}${esc(m.drain_text || "")}${icon}</span>`;
+}
+
+function renderBuildDetail() {
+  const b = buildsData.find(x => x.id === selectedBuildId);
+  if (!b) {
+    $("buildDetail").innerHTML = `<div class="empty">Importe un build depuis Overframe, puis sélectionne-le ici.</div>`;
+    return;
+  }
+  const card = (m, kind, tag) => `
+    <button class="mod-card r-${esc(m.rarity || "none")}${selectedMod === m.name ? " active" : ""}" title="${esc(m.name)}"
+            data-name="${esc(m.name)}" data-rarity="${esc(m.rarity || "")}" data-image="${esc(m.image || "")}" data-kind="${kind}">
+      ${kind === "mod" && (polarityBadge(m) || tag) ? `<span class="card-head">${polarityBadge(m)}${tag ? `<span class="slot-tag">${tag}</span>` : ""}</span>` : ""}
+      ${modImage(m.image)}
+      <span class="mc-text">${esc(m.name)}<span class="rarity">${esc(m.rarity || "")}</span></span>
+    </button>`;
+
+  // Slots 1 à 8 : grille 4×2, dans l'ordre d'affichage d'Overframe (8 → 1).
+  // Au-delà : aura (capacité négative) et exilus, sur une ligne au-dessus.
+  // Les builds importés avant le relevé des slots suivent l'ordre de la page, qui est celui des slots.
+  const mods = b.mods.map((m, i) => ({...m, slot: m.slot || i + 1}));
+  const bySlot = Object.fromEntries(mods.map(m => [m.slot, m]));
+  const special = mods.filter(m => m.slot > 8).sort((x, y) => x.slot - y.slot);
+  const grid = [8, 7, 6, 5, 4, 3, 2, 1]
+    .map(s => bySlot[s] ? card(bySlot[s], "mod") : `<div class="mod-empty" title="Slot vide"></div>`);
+  // Ligne du haut : aura et exilus centrés (colonnes 2 et 3), cases invisibles autour.
+  const specialCards = special.slice(0, 2).map((m, i) => {
+    const aura = typeof m.drain === "number" ? m.drain < 0 : special.length === 2 && i === 0;
+    return card(m, "mod", aura ? "Aura" : "Exilus");
+  });
+  const spacer = '<div class="mod-spacer"></div>';
+  const topRow = specialCards.length ? [spacer, ...specialCards, ...Array(3 - specialCards.length).fill(spacer)] : [];
+  const rows = topRow.length ? 3 : 2;
+  $("buildDetail").innerHTML = `
+    <div class="build-head">
+      <div>
+        <div class="bh-item">${esc(b.item)}${Number.isInteger(b.formas) ? ` <span class="forma-count" title="Nombre de formas appliquées">◆ ${b.formas} forma${b.formas > 1 ? "s" : ""}</span>` : ""}${b.folder_id ? ` <span class="forma-count">· 📁 ${esc(folderName(b.folder_id) || "")}</span>` : ""}</div>
+        <div class="bh-name"><h3>${esc(displayName(b))}</h3>
+          <button type="button" class="icon-btn" data-rename-build="${esc(b.id)}" title="Renommer">✏️</button></div>
+        ${b.custom_name ? `<div class="bh-original">Titre sur Overframe : ${esc(b.title)}</div>` : ""}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn-ghost" data-back>← Tous les builds</button>
+        <a class="btn-ghost" href="${esc(b.url)}" target="_blank" rel="noopener">Voir sur Overframe ↗</a>
+        <button class="btn-ghost" data-delete="${esc(b.id)}">Supprimer</button>
+      </div>
+    </div>
+    <div class="build-layout">
+      <div class="mods-col">
+        <div class="mod-section-title">Mods (${b.mods.length})</div>
+        <div class="mod-board" style="grid-template-rows: repeat(${rows}, minmax(0, 1fr))">${topRow.concat(grid).join("")}</div>
+      </div>
+      <div class="arcanes-col">
+        <div class="mod-section-title">Arcanes (${b.arcanes.length})</div>
+        <div class="arcane-stack">${b.arcanes.map(a => card(a, "arcane")).join("") || `<div class="empty">Aucun</div>`}</div>
+      </div>
+    </div>`;
+}
+
+async function openMod(name, rarity, image) {
+  selectedMod = name;
+  renderBuildDetail();
+  const title = `<div class="mod-title">${modImage(image)}<div><h3>${esc(name)}</h3>
+    <div class="meta" style="text-transform:capitalize">${esc(rarity || "")}</div></div></div>`;
+  $("modPanel").innerHTML = `${title}<div class="meta" style="margin-top:10px">Chargement de la fiche (wiki + warframe.market)…</div>`;
+  if ($("modPanel").getBoundingClientRect().top > window.innerHeight * 0.8) {
+    $("modPanel").scrollIntoView({block: "start"});  // fiche affichée sous le build
+  }
+  let info;
+  try {
+    info = await fetch("/api/mod-info?name=" + encodeURIComponent(name)).then(r => r.json());
+  } catch (e) {
+    if (selectedMod === name) $("modPanel").innerHTML = `<h3>${esc(name)}</h3><div class="meta">Serveur injoignable.</div>`;
+    return;
+  }
+  if (selectedMod !== name) return;  // l'utilisateur a cliqué ailleurs entre-temps
+
+  const wiki = info.wiki || {};
+  const market = info.market;
+  let marketHtml;
+  if (market && market.error) {
+    marketHtml = `<div class="meta">${esc(market.error)}</div>`;
+  } else if (market) {
+    const p = v => v === null || v === undefined ? "–" : v + "p";
+    marketHtml = `
+      <div class="price-box">
+        <div><div class="label">SMA 90j</div><div class="value">${p(market.sma)}</div></div>
+        <div><div class="label">+ bas en jeu</div><div class="value">${p(market.lowest)}</div></div>
+        <div><div class="label">Ventes/jour</div><div class="value">${fmt(market.vol_day)}</div></div>
+      </div>
+      <div class="meta">Prix pour la version non rangée${market.seller ? " — vendeur le moins cher : " + esc(market.seller) : ""}.</div>`;
+  } else {
+    marketHtml = `<div class="meta">Pas en vente sur warframe.market (non échangeable ou nom différent).</div>`;
+  }
+
+  let wikiHtml;
+  if (wiki.error) wikiHtml = `<div class="meta">${esc(wiki.error)}</div>`;
+  else if (!wiki.found) wikiHtml = `<div class="meta">Aucune page wiki trouvée pour ce nom.</div>`;
+  else if (!wiki.acquisition_html) wikiHtml = `<div class="meta">La page wiki n'a pas de section d'acquisition — consulte la page complète.</div>`;
+  else wikiHtml = `<div class="wiki-content">${wiki.acquisition_html}</div>`;
+
+  const links = [
+    wiki.url ? `<a class="btn-ghost" href="${esc(wiki.url)}" target="_blank" rel="noopener">Page wiki ↗</a>` : "",
+    market && market.url ? `<a class="btn-ghost" href="${esc(market.url)}" target="_blank" rel="noopener">warframe.market ↗</a>` : "",
+  ].join("");
+
+  $("modPanel").innerHTML = `
+    ${title}
+    <div class="links">${links}</div>
+    ${marketHtml}
+    <div class="mod-section-title">Où l'obtenir</div>
+    ${wikiHtml}`;
+}
+
+function renameBuild(id, host) {
+  const b = buildsData.find(x => x.id === id);
+  if (!b) return;
+  inlineEdit(host, displayName(b), name => api("/api/builds/update", {id, custom_name: name}));
+}
+
+// ----- Bibliothèque : dossiers -----
+$("folderList").addEventListener("click", e => {
+  const rename = e.target.closest("[data-rename-folder]");
+  if (rename) {
+    e.stopPropagation();
+    const id = rename.dataset.renameFolder;
+    const host = rename.closest(".folder-item").querySelector(".f-name");
+    inlineEdit(host, folderName(id) || "", name => api("/api/folders/rename", {id, name}));
+    return;
+  }
+  const del = e.target.closest("[data-delete-folder]");
+  if (del) {
+    e.stopPropagation();
+    const id = del.dataset.deleteFolder;
+    const n = buildsData.filter(b => b.folder_id === id).length;
+    const detail = !n ? ""
+      : n === 1 ? "\n\nSon build retournera dans « Non classés » : rien n'est effacé."
+      : `\n\nSes ${n} builds retourneront dans « Non classés » : rien n'est effacé.`;
+    if (confirm(`Supprimer le dossier « ${folderName(id)} » ?${detail}`)) api("/api/folders/delete", {id});
+    return;
+  }
+  const item = e.target.closest(".folder-item");
+  if (item && !e.target.closest(".inline-edit")) {
+    currentFolder = item.dataset.folder;
+    renderLibrary({builds: buildsData, folders: foldersData});
+  }
+});
+
+$("newFolderForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const name = $("newFolderName").value.trim();
+  if (!name) return;
+  const data = await api("/api/folders/create", {name});
+  if (data) {
+    $("newFolderName").value = "";
+    showToast(`✓ Dossier « ${name} » créé`, false);
+  }
+});
+
+$("libFilter").addEventListener("input", () => renderLibrary({builds: buildsData, folders: foldersData}));
+
+// ----- Bibliothèque : cartes (ouvrir, renommer, glisser vers un dossier) -----
+$("buildCards").addEventListener("click", e => {
+  const rename = e.target.closest("[data-rename-build]");
+  if (rename) {
+    e.stopPropagation();
+    renameBuild(rename.dataset.renameBuild, rename.closest(".bc-name").querySelector("span"));
+    return;
+  }
+  const card = e.target.closest(".build-card");
+  if (card && !e.target.closest(".inline-edit")) openBuild(card.dataset.id);
+});
+
+const DRAG_TYPE = "text/wfm-build";
+$("buildCards").addEventListener("dragstart", e => {
+  const card = e.target.closest(".build-card");
+  if (!card) return;
+  e.dataTransfer.setData(DRAG_TYPE, card.dataset.id);
+  e.dataTransfer.effectAllowed = "move";
+  card.classList.add("dragging");
+});
+$("buildCards").addEventListener("dragend", e => {
+  const card = e.target.closest(".build-card");
+  if (card) card.classList.remove("dragging");
+  document.querySelectorAll(".folder-item.drop-target").forEach(f => f.classList.remove("drop-target"));
+});
+$("folderList").addEventListener("dragover", e => {
+  const target = e.target.closest('.folder-item[data-drop]');
+  if (!target || !e.dataTransfer.types.includes(DRAG_TYPE)) return;
+  e.preventDefault();  // autorise le dépôt
+  e.dataTransfer.dropEffect = "move";
+  document.querySelectorAll(".folder-item.drop-target").forEach(f => f !== target && f.classList.remove("drop-target"));
+  target.classList.add("drop-target");
+});
+$("folderList").addEventListener("dragleave", e => {
+  const target = e.target.closest(".folder-item");
+  if (target && !target.contains(e.relatedTarget)) target.classList.remove("drop-target");
+});
+$("folderList").addEventListener("drop", async e => {
+  const target = e.target.closest('.folder-item[data-drop]');
+  const id = e.dataTransfer.getData(DRAG_TYPE);
+  if (!target || !id) return;
+  e.preventDefault();
+  target.classList.remove("drop-target");
+  const folderId = target.dataset.folder === "unsorted" ? null : target.dataset.folder;
+  const b = buildsData.find(x => x.id === id);
+  if (!b || (b.folder_id || null) === folderId) return;
+  const ok = await api("/api/builds/update", {id, folder_id: folderId});
+  if (ok) showToast(`✓ « ${displayName(b)} » rangé dans ${folderId ? "« " + folderName(folderId) + " »" : "Non classés"}`, false);
+});
+
+// ----- Build ouvert -----
+$("buildDetail").addEventListener("click", async e => {
+  if (e.target.closest("[data-back]")) {
+    closeBuild();
+    return;
+  }
+  const rename = e.target.closest("[data-rename-build]");
+  if (rename) {
+    renameBuild(rename.dataset.renameBuild, rename.closest(".bh-name").querySelector("h3"));
+    return;
+  }
+  const del = e.target.closest("[data-delete]");
+  if (del) {
+    const b = buildsData.find(x => x.id === del.dataset.delete);
+    if (!confirm(`Supprimer définitivement le build « ${b ? displayName(b) : ""} » ?`)) return;
+    await api("/api/builds/delete", {id: del.dataset.delete});
+    closeBuild();
+    return;
+  }
+  const card = e.target.closest(".mod-card");
+  if (card) openMod(card.dataset.name, card.dataset.rarity, card.dataset.image);
+});
+
+$("ofSearchForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const q = $("ofSearchInput").value.trim();
+  // Sans "noopener" : l'onglet Overframe reste lié à celui-ci, ce qui permet à son bouton
+  // « Ajouter au tableau de bord » de revenir sur cet onglet (nommé ci-dessous) au lieu d'en ouvrir un autre.
+  if (q) window.open("https://overframe.gg/search/?q=" + encodeURIComponent(q), "_blank");
+});
+
+// Navigation : chaque lien .nav-link[data-view=X] affiche la section #view-X.
+const VIEWS = [...document.querySelectorAll(".nav-link")].map(b => b.dataset.view);
+
+function setView(name) {
+  if (!VIEWS.includes(name)) name = VIEWS[0];
+  document.querySelectorAll(".view").forEach(v => { v.hidden = v.id !== "view-" + name; });
+  document.querySelectorAll(".nav-link").forEach(b => b.classList.toggle("active", b.dataset.view === name));
+  if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+}
+// Adresse de la forme #vue ou #vue&import=… (envoi d'un build par le bookmarklet).
+function handleHash() {
+  const [view, ...rest] = location.hash.slice(1).split("&");
+  const data = new URLSearchParams(rest.join("&")).get("import");
+  setView(view);  // réécrit l'adresse en #vue : un rechargement ne réimporte pas
+  if (data) importBuild(data);
+}
+document.querySelectorAll(".nav-link").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+window.addEventListener("hashchange", handleHash);
+handleHash();
+
+$("primeScanBtn").addEventListener("click", async () => {
+  $("primeScanBtn").disabled = true;
+  $("primeStatus").textContent = "Lancement de l'analyse...";
+  try { await fetch("/api/prime-scan", {method: "POST"}); } catch (e) {}
+  setTimeout(poll, 500);
+});
+
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("loginBtn").disabled = true;
+  try {
+    const resp = await fetch("/api/login", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({email: $("loginEmail").value, password: $("loginPassword").value}),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast("✓ Compte connecté — les boutons de prix sont actifs", false);
+      $("loginPassword").value = "";
+      poll();
+    } else {
+      showToast("✗ " + (data.message || "Connexion refusée"), true);
+    }
+  } catch (err) {
+    showToast("✗ Serveur injoignable", true);
+  }
+  $("loginBtn").disabled = false;
+});
+
+$("logoutBtn").addEventListener("click", async () => {
+  try { await fetch("/api/logout", {method: "POST"}); } catch (e) {}
+  showToast("Jeton oublié — compte déconnecté", false);
+  poll();
+});
+
+$("fastBtn").addEventListener("click", async () => {
+  const target = !fastMode;
+  try {
+    const resp = await fetch("/api/fast-mode", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({enabled: target}),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast(target ? "⚡ Mode auto activé — les prix conseillés seront appliqués à chaque scan" : "Mode auto désactivé", false);
+    } else {
+      showToast("✗ " + (data.message || "Impossible de changer le mode"), true);
+    }
+  } catch (e) {
+    showToast("✗ Serveur injoignable", true);
+  }
+  poll();
+});
+
+$("rescanBtn").addEventListener("click", async () => {
+  $("rescanBtn").disabled = true;
+  try { await fetch("/api/rescan", {method: "POST"}); } catch (e) {}
+  setTimeout(poll, 500);
+});
+
+document.querySelectorAll(".toolbar button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".toolbar button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentFilter = btn.dataset.filter;
+    if (lastResults) { const r = lastResults; lastResults = null; renderTable(r); }
+  });
+});
+$("search").addEventListener("input", e => {
+  searchTerm = e.target.value.toLowerCase();
+  if (lastResults) { const r = lastResults; lastResults = null; renderTable(r); }
+});
+
+poll();
+setInterval(poll, 5000);
+setInterval(tickCountdown, 1000);
+</script>
+</body>
+</html>

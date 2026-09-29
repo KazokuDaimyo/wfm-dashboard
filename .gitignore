@@ -1,0 +1,14 @@
+# Données personnelles et caches : ne doivent JAMAIS être publiés.
+# (Depuis la version autonome, ils vivent dans %APPDATA%\WFM-Dashboard.)
+wfm_token.txt
+*.json
+
+# Python
+__pycache__/
+*.pyc
+
+# Fabrication de l'exécutable
+build/
+dist/
+*.spec
+.venv*/
